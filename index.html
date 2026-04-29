@@ -1,0 +1,794 @@
+<!DOCTYPE html>
+<html class="light" lang="es">
+<head>
+  <meta charset="utf-8"/>
+  <meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+  <title>OilMine Analytics — Mining Ops</title>
+  <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500;700&amp;display=swap" rel="stylesheet"/>
+  <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+  <script id="tailwind-config">
+    tailwind.config = {
+      darkMode: "class",
+      theme: {
+        extend: {
+          colors: {
+            "tertiary-fixed": "#fcdeb5",
+            "secondary-fixed": "#e1e2ed",
+            "inverse-surface": "#2d3133",
+            "on-tertiary-fixed-variant": "#574425",
+            "surface-container-low": "#f2f4f6",
+            "outline": "#76777d",
+            "primary-container": "#131b2e",
+            "tertiary-container": "#271901",
+            "surface": "#f7f9fb",
+            "tertiary-fixed-dim": "#dec29a",
+            "on-background": "#191c1e",
+            "on-tertiary-fixed": "#271901",
+            "surface-container": "#eceef0",
+            "on-error-container": "#93000a",
+            "surface-bright": "#f7f9fb",
+            "surface-container-high": "#e6e8ea",
+            "primary-fixed-dim": "#bec6e0",
+            "on-tertiary-container": "#98805d",
+            "on-secondary": "#ffffff",
+            "secondary": "#5c5e68",
+            "on-secondary-fixed": "#191b24",
+            "surface-container-highest": "#e0e3e5",
+            "surface-variant": "#e0e3e5",
+            "on-tertiary": "#ffffff",
+            "tertiary": "#000000",
+            "error": "#ba1a1a",
+            "inverse-on-surface": "#eff1f3",
+            "secondary-fixed-dim": "#c4c6d1",
+            "on-primary-fixed-variant": "#3f465c",
+            "on-secondary-container": "#60626c",
+            "inverse-primary": "#bec6e0",
+            "on-secondary-fixed-variant": "#444650",
+            "error-container": "#ffdad6",
+            "primary": "#000000",
+            "on-surface": "#191c1e",
+            "on-primary": "#ffffff",
+            "on-surface-variant": "#45464d",
+            "secondary-container": "#dedfeb",
+            "primary-fixed": "#dae2fd",
+            "background": "#f7f9fb",
+            "on-primary-container": "#7c839b",
+            "surface-container-lowest": "#ffffff",
+            "on-error": "#ffffff",
+            "outline-variant": "#c6c6cd",
+            "surface-dim": "#d8dadc",
+            "surface-tint": "#565e74",
+            "on-primary-fixed": "#131b2e"
+          },
+          borderRadius: {
+            DEFAULT: "0.25rem",
+            lg: "0.5rem",
+            xl: "0.75rem",
+            full: "9999px"
+          },
+          fontFamily: {
+            headline: ["Inter", "sans-serif"],
+            body: ["Inter", "sans-serif"],
+            label: ["Inter", "sans-serif"],
+            mono: ["JetBrains Mono", "monospace"]
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    body { font-family: 'Inter', sans-serif; background-color: #f7f9fb; color: #191c1e; }
+    .font-mono, .telemetry-font { font-family: 'JetBrains Mono', monospace; }
+    .bg-glass {
+      background-color: rgba(255, 255, 255, 0.8);
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+    }
+    .shadow-ambient { box-shadow: 0 10px 30px rgba(15, 23, 42, 0.04); }
+    .gradient-primary {
+      background: linear-gradient(135deg, #000000 0%, #131b2e 100%);
+    }
+    .no-scrollbar::-webkit-scrollbar { display: none; }
+    .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+    .nav-active { background-color: #e0e3e5; color: #191c1e; box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04); }
+    .nav-inactive { color: #5c5e68; }
+    .nav-inactive:hover { background-color: #e6e8ea; }
+  </style>
+</head>
+<body class="flex flex-col h-screen overflow-hidden bg-background text-on-background antialiased">
+  <!-- Top bar: glassmorphism (DESIGN §4) -->
+  <header class="bg-glass shadow-ambient z-50 shrink-0">
+    <div class="flex justify-between items-center w-full px-4 md:px-6 py-3">
+      <div class="flex items-center space-x-4 md:space-x-6 min-w-0">
+        <div class="text-lg font-semibold tracking-tighter text-on-background truncate">OilMine Analytics</div>
+        <nav class="hidden md:flex items-center gap-1" aria-label="Secciones principales">
+          <button type="button" data-view="flota" class="nav-top nav-active px-3 py-1.5 rounded-lg text-sm font-medium transition-colors">Flota</button>
+          <button type="button" data-view="equipo" class="nav-top nav-inactive px-3 py-1.5 rounded-lg text-sm font-medium transition-colors">Equipo</button>
+          <button type="button" data-view="muestra" class="nav-top nav-inactive px-3 py-1.5 rounded-lg text-sm font-medium transition-colors">Nueva Muestra</button>
+          <button type="button" data-view="reportes" class="nav-top nav-inactive px-3 py-1.5 rounded-lg text-sm font-medium transition-colors">Reportes</button>
+        </nav>
+      </div>
+      <div class="flex items-center gap-3 shrink-0">
+        <span class="hidden sm:inline text-sm telemetry-font text-on-background">Last Sync: 14:32 UTC</span>
+        <button type="button" class="material-symbols-outlined text-on-background hover:opacity-70 transition-opacity" aria-label="Notificaciones">notifications</button>
+        <div class="w-8 h-8 rounded-full bg-primary-container text-on-primary flex items-center justify-center font-bold text-xs font-mono">AD</div>
+      </div>
+    </div>
+  </header>
+
+  <!-- Mobile segment control: tonal, sin bordes de sección -->
+  <nav class="md:hidden flex gap-1 px-3 py-2 bg-surface-container-low overflow-x-auto no-scrollbar shrink-0" aria-label="Vistas móvil">
+    <button type="button" data-view="flota" class="nav-mob nav-active flex items-center gap-1.5 px-3 py-2 rounded-lg text-[11px] font-bold uppercase tracking-wider whitespace-nowrap shrink-0">Flota</button>
+    <button type="button" data-view="equipo" class="nav-mob nav-inactive flex items-center gap-1.5 px-3 py-2 rounded-lg text-[11px] font-bold uppercase tracking-wider whitespace-nowrap shrink-0">Equipo</button>
+    <button type="button" data-view="muestra" class="nav-mob nav-inactive flex items-center gap-1.5 px-3 py-2 rounded-lg text-[11px] font-bold uppercase tracking-wider whitespace-nowrap shrink-0">Muestra</button>
+    <button type="button" data-view="reportes" class="nav-mob nav-inactive flex items-center gap-1.5 px-3 py-2 rounded-lg text-[11px] font-bold uppercase tracking-wider whitespace-nowrap shrink-0">Reportes</button>
+  </nav>
+
+  <div class="flex flex-1 min-h-0 overflow-hidden">
+    <!-- Sidebar desktop: surface_container_low, sin borde -->
+    <aside class="hidden md:flex flex-col h-full w-64 p-4 space-y-2 bg-surface-container-low shrink-0 z-40">
+      <div class="mb-6 px-2">
+        <h2 class="text-on-background font-headline font-bold text-sm tracking-tight">Mining Ops</h2>
+        <p class="text-on-surface-variant font-mono text-[10px] uppercase tracking-widest mt-1">Technical Journal</p>
+      </div>
+      <nav class="flex-1 space-y-1" aria-label="Navegación lateral">
+        <button type="button" data-view="flota" class="nav-side nav-active w-full flex items-center px-3 py-2.5 rounded-lg text-left text-[11px] font-bold uppercase tracking-[0.05em] transition-all active:scale-[0.98]">
+          <span class="material-symbols-outlined mr-3 text-lg" style="font-variation-settings: 'FILL' 0;">local_shipping</span>
+          Flota
+        </button>
+        <button type="button" data-view="equipo" class="nav-side nav-inactive w-full flex items-center px-3 py-2.5 rounded-lg text-left text-[11px] font-bold uppercase tracking-[0.05em] transition-all active:scale-[0.98]">
+          <span class="material-symbols-outlined mr-3 text-lg" style="font-variation-settings: 'FILL' 0;">precision_manufacturing</span>
+          Equipo
+        </button>
+        <button type="button" data-view="muestra" class="nav-side nav-inactive w-full flex items-center px-3 py-2.5 rounded-lg text-left text-[11px] font-bold uppercase tracking-[0.05em] transition-all active:scale-[0.98]">
+          <span class="material-symbols-outlined mr-3 text-lg" style="font-variation-settings: 'FILL' 0;">add_chart</span>
+          Nueva Muestra
+        </button>
+        <button type="button" data-view="reportes" class="nav-side nav-inactive w-full flex items-center px-3 py-2.5 rounded-lg text-left text-[11px] font-bold uppercase tracking-[0.05em] transition-all active:scale-[0.98]">
+          <span class="material-symbols-outlined mr-3 text-lg" style="font-variation-settings: 'FILL' 0;">analytics</span>
+          Reportes
+        </button>
+      </nav>
+    </aside>
+
+    <main class="flex-1 overflow-y-auto no-scrollbar bg-surface min-w-0">
+      <!-- ========== VISTA: FLOTA ========== -->
+      <section id="view-flota" class="view-panel p-6 md:p-10">
+        <div class="mb-8 flex flex-col sm:flex-row sm:justify-between sm:items-end gap-4">
+          <div>
+            <h1 class="text-3xl font-headline font-semibold text-on-surface tracking-tight">Estado actual de la flota</h1>
+            <p class="text-on-surface-variant mt-2 font-body text-sm max-w-2xl">Monitoreo en tiempo real de unidades de acarreo. Prioridad a umbrales de mantenimiento crítico.</p>
+          </div>
+          <div class="hidden sm:flex gap-3">
+            <button type="button" class="px-4 py-2 bg-surface-container-high text-on-surface rounded-lg font-mono text-xs font-bold uppercase tracking-wider hover:bg-surface-container-highest transition-colors flex items-center">
+              <span class="material-symbols-outlined text-sm mr-2">download</span>
+              Export Log
+            </button>
+            <button type="button" class="px-5 py-2 gradient-primary text-on-primary rounded-xl font-headline font-semibold text-sm hover:opacity-90 transition-opacity flex items-center shadow-ambient">
+              <span class="material-symbols-outlined text-sm mr-2">filter_list</span>
+              Filtros
+            </button>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-10">
+          <div class="bg-surface-container-lowest p-5 rounded-xl shadow-ambient flex flex-col justify-between h-32 relative overflow-hidden group">
+            <div class="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity">
+              <span class="material-symbols-outlined text-6xl">local_shipping</span>
+            </div>
+            <span class="font-headline text-xs tracking-widest uppercase text-on-surface-variant relative z-10">Total Unidades</span>
+            <div class="flex items-baseline gap-2 relative z-10">
+              <span class="font-mono text-4xl font-bold text-on-surface">33</span>
+              <span class="font-mono text-xs text-on-surface-variant">ACT</span>
+            </div>
+          </div>
+          <div class="bg-error-container p-5 rounded-xl shadow-ambient flex flex-col justify-between h-32 relative overflow-hidden">
+            <div class="absolute top-0 right-0 p-4 opacity-10">
+              <span class="material-symbols-outlined text-6xl text-error">warning</span>
+            </div>
+            <div class="flex items-center gap-2 relative z-10">
+              <div class="w-2 h-2 rounded-full bg-error"></div>
+              <span class="font-headline text-xs tracking-widest uppercase text-on-error-container">Crítico</span>
+            </div>
+            <div class="flex items-baseline gap-2 relative z-10">
+              <span class="font-mono text-4xl font-bold text-on-error-container">08</span>
+              <span class="font-mono text-xs text-on-error-container opacity-80">UNITS</span>
+            </div>
+          </div>
+          <div class="bg-tertiary-container p-5 rounded-xl shadow-ambient flex flex-col justify-between h-32 relative overflow-hidden">
+            <div class="absolute top-0 right-0 p-4 opacity-10">
+              <span class="material-symbols-outlined text-6xl text-tertiary-fixed">info</span>
+            </div>
+            <div class="flex items-center gap-2 relative z-10">
+              <div class="w-2 h-2 rounded-full bg-tertiary-fixed"></div>
+              <span class="font-headline text-xs tracking-widest uppercase text-on-tertiary-container">Precaución</span>
+            </div>
+            <div class="flex items-baseline gap-2 relative z-10">
+              <span class="font-mono text-4xl font-bold text-on-tertiary-container">12</span>
+              <span class="font-mono text-xs text-on-tertiary-container opacity-80">UNITS</span>
+            </div>
+          </div>
+          <div class="bg-surface-container-lowest p-5 rounded-xl shadow-ambient flex flex-col justify-between h-32 relative overflow-hidden">
+            <div class="absolute top-0 right-0 p-4 opacity-5">
+              <span class="material-symbols-outlined text-6xl">check_circle</span>
+            </div>
+            <div class="flex items-center gap-2 relative z-10">
+              <div class="w-2 h-2 rounded-full bg-surface-tint"></div>
+              <span class="font-headline text-xs tracking-widest uppercase text-on-surface-variant">Óptimo</span>
+            </div>
+            <div class="flex items-baseline gap-2 relative z-10">
+              <span class="font-mono text-4xl font-bold text-on-surface">13</span>
+              <span class="font-mono text-xs text-on-surface-variant opacity-80">UNITS</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+          <article class="bg-surface-container-lowest rounded-xl p-5 shadow-ambient flex flex-col gap-4 hover:bg-surface-container-highest transition-colors cursor-pointer group">
+            <div class="flex justify-between items-start">
+              <div class="flex items-center gap-3">
+                <div class="w-10 h-10 bg-error-container rounded-lg flex items-center justify-center">
+                  <span class="material-symbols-outlined text-error text-xl">local_shipping</span>
+                </div>
+                <div>
+                  <h3 class="font-mono font-bold text-lg text-on-surface leading-tight">HT012</h3>
+                  <span class="font-headline text-[10px] uppercase tracking-wider text-on-surface-variant">Komatsu 930E</span>
+                </div>
+              </div>
+              <div class="w-2 h-2 rounded-full bg-error shadow-[0_0_8px_rgba(186,26,26,0.6)]"></div>
+            </div>
+            <div class="bg-surface-container-low rounded-lg p-3 space-y-2">
+              <div class="flex justify-between items-center">
+                <span class="font-body text-xs text-on-surface-variant">Horas Actuales</span>
+                <span class="font-mono text-sm font-bold text-on-surface">18,452.3</span>
+              </div>
+              <div class="flex justify-between items-center">
+                <span class="font-body text-xs text-on-error-container font-semibold">Hasta Crítico</span>
+                <div class="flex items-center gap-1">
+                  <span class="material-symbols-outlined text-[14px] text-error" style="font-variation-settings: 'FILL' 1;">warning</span>
+                  <span class="font-mono text-sm font-bold text-error">-24.5h</span>
+                </div>
+              </div>
+            </div>
+            <div class="flex justify-between items-center mt-auto pt-2">
+              <span class="font-mono text-[10px] text-on-surface-variant opacity-60">UPD: 2M AGO</span>
+              <span class="material-symbols-outlined text-on-surface-variant text-sm group-hover:opacity-70 transition-opacity">arrow_forward</span>
+            </div>
+          </article>
+
+          <article class="bg-surface-container-lowest rounded-xl p-5 shadow-ambient flex flex-col gap-4 hover:bg-surface-container-highest transition-colors cursor-pointer group">
+            <div class="flex justify-between items-start">
+              <div class="flex items-center gap-3">
+                <div class="w-10 h-10 bg-tertiary-container rounded-lg flex items-center justify-center">
+                  <span class="material-symbols-outlined text-tertiary-fixed text-xl">local_shipping</span>
+                </div>
+                <div>
+                  <h3 class="font-mono font-bold text-lg text-on-surface leading-tight">HT045</h3>
+                  <span class="font-headline text-[10px] uppercase tracking-wider text-on-surface-variant">Cat 797F</span>
+                </div>
+              </div>
+              <div class="w-2 h-2 rounded-full bg-tertiary-fixed shadow-[0_0_8px_rgba(252,222,181,0.6)]"></div>
+            </div>
+            <div class="bg-surface-container-low rounded-lg p-3 space-y-2">
+              <div class="flex justify-between items-center">
+                <span class="font-body text-xs text-on-surface-variant">Horas Actuales</span>
+                <span class="font-mono text-sm font-bold text-on-surface">12,105.8</span>
+              </div>
+              <div class="flex justify-between items-center">
+                <span class="font-body text-xs text-on-tertiary-container">Hasta Crítico</span>
+                <span class="font-mono text-sm font-bold text-on-tertiary-container">120.0h</span>
+              </div>
+            </div>
+            <div class="flex justify-between items-center mt-auto pt-2">
+              <span class="font-mono text-[10px] text-on-surface-variant opacity-60">UPD: 5M AGO</span>
+              <span class="material-symbols-outlined text-on-surface-variant text-sm group-hover:opacity-70 transition-opacity">arrow_forward</span>
+            </div>
+          </article>
+
+          <article class="bg-surface-container-lowest rounded-xl p-5 shadow-ambient flex flex-col gap-4 hover:bg-surface-container-highest transition-colors cursor-pointer group">
+            <div class="flex justify-between items-start">
+              <div class="flex items-center gap-3">
+                <div class="w-10 h-10 bg-surface-container rounded-lg flex items-center justify-center">
+                  <span class="material-symbols-outlined text-surface-tint text-xl">local_shipping</span>
+                </div>
+                <div>
+                  <h3 class="font-mono font-bold text-lg text-on-surface leading-tight">HT028</h3>
+                  <span class="font-headline text-[10px] uppercase tracking-wider text-on-surface-variant">Komatsu 930E</span>
+                </div>
+              </div>
+              <div class="w-2 h-2 rounded-full bg-surface-tint"></div>
+            </div>
+            <div class="bg-surface-container-low rounded-lg p-3 space-y-2">
+              <div class="flex justify-between items-center">
+                <span class="font-body text-xs text-on-surface-variant">Horas Actuales</span>
+                <span class="font-mono text-sm font-bold text-on-surface">4,320.1</span>
+              </div>
+              <div class="flex justify-between items-center">
+                <span class="font-body text-xs text-on-surface-variant">Hasta Crítico</span>
+                <span class="font-mono text-sm font-bold text-surface-tint">850.5h</span>
+              </div>
+            </div>
+            <div class="flex justify-between items-center mt-auto pt-2">
+              <span class="font-mono text-[10px] text-on-surface-variant opacity-60">UPD: 1M AGO</span>
+              <span class="material-symbols-outlined text-on-surface-variant text-sm group-hover:opacity-70 transition-opacity">arrow_forward</span>
+            </div>
+          </article>
+
+          <article class="bg-surface-container-lowest rounded-xl p-5 shadow-ambient flex flex-col gap-4 hover:bg-surface-container-highest transition-colors cursor-pointer group">
+            <div class="flex justify-between items-start">
+              <div class="flex items-center gap-3">
+                <div class="w-10 h-10 bg-tertiary-container rounded-lg flex items-center justify-center">
+                  <span class="material-symbols-outlined text-tertiary-fixed text-xl">local_shipping</span>
+                </div>
+                <div>
+                  <h3 class="font-mono font-bold text-lg text-on-surface leading-tight">HT051</h3>
+                  <span class="font-headline text-[10px] uppercase tracking-wider text-on-surface-variant">Cat 797F</span>
+                </div>
+              </div>
+              <div class="w-2 h-2 rounded-full bg-tertiary-fixed shadow-[0_0_8px_rgba(252,222,181,0.6)]"></div>
+            </div>
+            <div class="bg-surface-container-low rounded-lg p-3 space-y-2">
+              <div class="flex justify-between items-center">
+                <span class="font-body text-xs text-on-surface-variant">Horas Actuales</span>
+                <span class="font-mono text-sm font-bold text-on-surface">15,890.2</span>
+              </div>
+              <div class="flex justify-between items-center">
+                <span class="font-body text-xs text-on-tertiary-container">Hasta Crítico</span>
+                <div class="flex items-center gap-1">
+                  <span class="material-symbols-outlined text-[14px] text-tertiary-fixed" style="font-variation-settings: 'FILL' 1;" title="Low Data Confidence">warning</span>
+                  <span class="font-mono text-sm font-bold text-on-tertiary-container">~45.0h</span>
+                </div>
+              </div>
+            </div>
+            <div class="flex justify-between items-center mt-auto pt-2">
+              <span class="font-mono text-[10px] text-on-surface-variant opacity-60">UPD: 12M AGO</span>
+              <span class="material-symbols-outlined text-on-surface-variant text-sm group-hover:opacity-70 transition-opacity">arrow_forward</span>
+            </div>
+          </article>
+
+          <article class="bg-surface-container-lowest rounded-xl p-5 shadow-ambient flex flex-col gap-4 hover:bg-surface-container-highest transition-colors cursor-pointer group">
+            <div class="flex justify-between items-start">
+              <div class="flex items-center gap-3">
+                <div class="w-10 h-10 bg-surface-container rounded-lg flex items-center justify-center">
+                  <span class="material-symbols-outlined text-surface-tint text-xl">local_shipping</span>
+                </div>
+                <div>
+                  <h3 class="font-mono font-bold text-lg text-on-surface leading-tight">HT033</h3>
+                  <span class="font-headline text-[10px] uppercase tracking-wider text-on-surface-variant">Komatsu 930E</span>
+                </div>
+              </div>
+              <div class="w-2 h-2 rounded-full bg-surface-tint"></div>
+            </div>
+            <div class="bg-surface-container-low rounded-lg p-3 space-y-2">
+              <div class="flex justify-between items-center">
+                <span class="font-body text-xs text-on-surface-variant">Horas Actuales</span>
+                <span class="font-mono text-sm font-bold text-on-surface">2,150.0</span>
+              </div>
+              <div class="flex justify-between items-center">
+                <span class="font-body text-xs text-on-surface-variant">Hasta Crítico</span>
+                <span class="font-mono text-sm font-bold text-surface-tint">1,200.0h</span>
+              </div>
+            </div>
+            <div class="flex justify-between items-center mt-auto pt-2">
+              <span class="font-mono text-[10px] text-on-surface-variant opacity-60">UPD: JUST NOW</span>
+              <span class="material-symbols-outlined text-on-surface-variant text-sm group-hover:opacity-70 transition-opacity">arrow_forward</span>
+            </div>
+          </article>
+        </div>
+
+        <div class="mt-8 flex justify-center pb-8">
+          <button type="button" class="px-6 py-2 bg-transparent text-on-surface-variant rounded-lg font-mono text-xs font-bold uppercase tracking-wider hover:bg-surface-container-high transition-colors">
+            Load More Units
+          </button>
+        </div>
+      </section>
+
+      <!-- ========== VISTA: EQUIPO (HT012) ========== -->
+      <section id="view-equipo" class="view-panel hidden p-6 md:p-10 lg:p-12">
+        <div class="max-w-7xl mx-auto space-y-8">
+          <nav aria-label="Migas de pan" class="flex text-sm text-on-surface-variant font-medium tracking-wide mb-6">
+            <ol class="inline-flex items-center gap-1 md:gap-3">
+              <li class="inline-flex items-center">
+                <button type="button" data-view="flota" class="hover:text-primary transition-colors text-left">Flota</button>
+              </li>
+              <li class="flex items-center">
+                <span class="material-symbols-outlined text-sm mx-1 opacity-50">chevron_right</span>
+                <span class="text-on-background font-semibold">HT012</span>
+              </li>
+            </ol>
+          </nav>
+
+          <div class="flex flex-col md:flex-row md:items-end justify-between gap-6 mb-12">
+            <div>
+              <div class="flex flex-wrap items-center gap-4 mb-2">
+                <h1 class="text-4xl md:text-5xl font-bold tracking-tight text-on-background">HT012</h1>
+                <div class="flex items-center gap-2 bg-error-container/60 px-3 py-1.5 rounded-lg">
+                  <div class="w-2 h-2 rounded-full bg-error"></div>
+                  <span class="font-mono text-xs font-bold text-on-error-container uppercase tracking-wider">CRITICO</span>
+                </div>
+              </div>
+              <p class="text-on-surface-variant text-sm max-w-2xl mt-4 leading-relaxed">Haul Truck • Komatsu 930E • Engine Oil Compartment</p>
+            </div>
+            <button type="button" data-view="muestra" class="bg-primary-container text-on-primary px-6 py-3 rounded-xl font-medium text-sm flex items-center justify-center gap-2 hover:opacity-90 transition-opacity shadow-ambient shrink-0">
+              <span class="material-symbols-outlined text-sm">add</span>
+              Registrar nueva muestra
+            </button>
+          </div>
+
+          <div class="bg-tertiary-fixed/30 rounded-xl p-4 flex items-start gap-4 mb-8">
+            <span class="material-symbols-outlined text-tertiary-container mt-0.5">warning</span>
+            <div>
+              <h4 class="text-on-tertiary-container font-semibold text-sm mb-1">Low Historical Confidence</h4>
+              <p class="text-on-tertiary-container/80 text-sm">Only 3 samples recorded for this compartment. Predictive models may have higher variance. Proceed with manual inspection.</p>
+            </div>
+          </div>
+
+          <!-- KPI: separación por tono y gap, sin bordes entre celdas (DESIGN) -->
+          <div class="bg-surface-container-low rounded-xl p-2 grid grid-cols-2 md:grid-cols-4 gap-2">
+            <div class="bg-surface-container-lowest p-6 rounded-lg flex flex-col justify-between">
+              <span class="text-xs uppercase tracking-widest text-on-surface-variant font-medium mb-4">Total Hours</span>
+              <span class="font-mono text-3xl font-bold text-on-background">12,450<span class="text-sm font-sans text-on-surface-variant ml-1 font-normal">hrs</span></span>
+            </div>
+            <div class="bg-surface-container-lowest p-6 rounded-lg flex flex-col justify-between relative overflow-hidden">
+              <div class="absolute top-0 right-0 w-1 h-full bg-error rounded-full"></div>
+              <span class="text-xs uppercase tracking-widest text-on-surface-variant font-medium mb-4">Time to Critical</span>
+              <span class="font-mono text-3xl font-bold text-error">Est. 48<span class="text-sm font-sans text-error/70 ml-1 font-normal">hrs</span></span>
+            </div>
+            <div class="bg-surface-container-lowest p-6 rounded-lg flex flex-col justify-between">
+              <span class="text-xs uppercase tracking-widest text-on-surface-variant font-medium mb-4">Total Samples</span>
+              <span class="font-mono text-3xl font-bold text-on-background">03</span>
+            </div>
+            <div class="bg-surface-container-lowest p-6 rounded-lg flex flex-col justify-between">
+              <span class="text-xs uppercase tracking-widest text-on-surface-variant font-medium mb-4">Last Sample</span>
+              <span class="font-mono text-lg font-bold text-on-background">2023-10-24<br/><span class="text-sm text-on-surface-variant font-normal">14:30 UTC</span></span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ========== VISTA: NUEVA MUESTRA ========== -->
+      <section id="view-muestra" class="view-panel hidden p-6 md:p-12 lg:p-16">
+        <div class="max-w-4xl mx-auto mb-12">
+          <div class="flex flex-wrap items-center gap-3 mb-2 text-secondary text-sm font-medium tracking-wide">
+            <span>HT012</span>
+            <span class="w-1.5 h-1.5 rounded-full bg-secondary-fixed-dim"></span>
+            <span>Haul Truck</span>
+            <span class="w-1.5 h-1.5 rounded-full bg-secondary-fixed-dim"></span>
+            <span>Engine Oil</span>
+          </div>
+          <h1 class="text-4xl md:text-5xl font-semibold tracking-tight text-primary-container mb-4">Registro de Muestra</h1>
+          <p class="text-secondary max-w-2xl text-base md:text-lg">Ingrese los parámetros de telemetría y resultados de laboratorio para el análisis predictivo de desgaste.</p>
+        </div>
+
+        <div class="max-w-4xl mx-auto">
+          <form class="space-y-12" action="#" onsubmit="return false;">
+            <section class="bg-surface-container-lowest p-8 rounded-xl shadow-ambient relative overflow-hidden">
+              <div class="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-primary-container to-secondary-fixed-dim opacity-50"></div>
+              <h2 class="text-xs uppercase tracking-[0.05em] font-bold text-secondary mb-8">1. Metadatos de Operación</h2>
+              <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+                <div>
+                  <label class="block text-sm font-medium text-on-surface-variant mb-2">Equipo</label>
+                  <input class="w-full bg-surface-container-highest font-mono text-on-background px-4 py-3 rounded focus:outline focus:outline-1 focus:outline-primary/20 focus:bg-surface-container-lowest transition-colors text-sm" readonly type="text" value="HT012"/>
+                </div>
+                <div>
+                  <label class="block text-sm font-medium text-on-surface-variant mb-2">Fecha de Muestreo</label>
+                  <input class="w-full bg-surface-container-highest font-mono text-on-background px-4 py-3 rounded focus:outline focus:outline-1 focus:outline-primary/20 focus:bg-surface-container-lowest transition-colors text-sm" type="date"/>
+                </div>
+                <div>
+                  <label class="block text-sm font-medium text-on-surface-variant mb-2">Horas Componente</label>
+                  <div class="relative">
+                    <input class="w-full bg-surface-container-highest font-mono text-on-background px-4 py-3 rounded focus:outline focus:outline-1 focus:outline-primary/20 focus:bg-surface-container-lowest transition-colors text-sm pr-12" placeholder="Ej: 4500" type="number"/>
+                    <span class="absolute right-4 top-1/2 -translate-y-1/2 text-secondary text-xs font-mono">hrs</span>
+                  </div>
+                </div>
+                <div>
+                  <label class="block text-sm font-medium text-on-surface-variant mb-2">Horas Aceite</label>
+                  <div class="relative">
+                    <input class="w-full bg-surface-container-highest font-mono text-on-background px-4 py-3 rounded focus:outline focus:outline-1 focus:outline-primary/20 focus:bg-surface-container-lowest transition-colors text-sm pr-12" placeholder="Ej: 250" type="number"/>
+                    <span class="absolute right-4 top-1/2 -translate-y-1/2 text-secondary text-xs font-mono">hrs</span>
+                  </div>
+                </div>
+                <div class="md:col-span-2 lg:col-span-2">
+                  <label class="block text-sm font-medium text-on-surface-variant mb-2">ID de Muestra (Laboratorio)</label>
+                  <input class="w-full bg-surface-container-highest font-mono text-on-background px-4 py-3 rounded focus:outline focus:outline-1 focus:outline-primary/20 focus:bg-surface-container-lowest transition-colors text-sm" placeholder="LAB-2023-XXXX" type="text"/>
+                </div>
+              </div>
+            </section>
+
+            <section class="bg-surface-container-lowest p-8 rounded-xl shadow-ambient">
+              <h2 class="text-xs uppercase tracking-[0.05em] font-bold text-secondary mb-8">2. Evaluación Visual (Campo)</h2>
+              <div class="space-y-6">
+                <div>
+                  <p class="text-sm font-medium text-on-surface-variant mb-4">Apariencia del fluido</p>
+                  <div class="flex flex-wrap gap-4">
+                    <label class="flex items-center gap-3 cursor-pointer group">
+                      <input class="text-primary-container focus:ring-tertiary-fixed-dim bg-surface-container" name="apariencia" type="radio"/>
+                      <span class="text-sm text-on-background group-hover:text-primary-container transition-colors">Normal</span>
+                    </label>
+                    <label class="flex items-center gap-3 cursor-pointer group">
+                      <input class="text-primary-container focus:ring-tertiary-fixed-dim bg-surface-container" name="apariencia" type="radio"/>
+                      <span class="text-sm text-on-background group-hover:text-primary-container transition-colors">Oscuro/Opaco</span>
+                    </label>
+                    <label class="flex items-center gap-3 cursor-pointer group">
+                      <input class="text-primary-container focus:ring-tertiary-fixed-dim bg-surface-container" name="apariencia" type="radio"/>
+                      <span class="text-sm text-on-background group-hover:text-primary-container transition-colors">Lechoso (Agua)</span>
+                    </label>
+                  </div>
+                </div>
+                <div>
+                  <p class="text-sm font-medium text-on-surface-variant mb-4">Presencia de partículas</p>
+                  <div class="flex flex-wrap gap-4">
+                    <label class="flex items-center gap-3 cursor-pointer group">
+                      <input class="text-primary-container focus:ring-tertiary-fixed-dim bg-surface-container" name="particulas" type="radio"/>
+                      <span class="text-sm text-on-background group-hover:text-primary-container transition-colors">Ninguna</span>
+                    </label>
+                    <label class="flex items-center gap-3 cursor-pointer group">
+                      <input class="text-primary-container focus:ring-tertiary-fixed-dim bg-surface-container" name="particulas" type="radio"/>
+                      <span class="text-sm text-on-background group-hover:text-primary-container transition-colors">Metálicas</span>
+                    </label>
+                    <label class="flex items-center gap-3 cursor-pointer group">
+                      <input class="text-primary-container focus:ring-tertiary-fixed-dim bg-surface-container" name="particulas" type="radio"/>
+                      <span class="text-sm text-on-background group-hover:text-primary-container transition-colors">No Metálicas (Tierra/Polvo)</span>
+                    </label>
+                  </div>
+                </div>
+              </div>
+            </section>
+
+            <section class="bg-surface-container-lowest p-8 rounded-xl shadow-ambient">
+              <div class="flex justify-between items-end mb-8 pb-4">
+                <h2 class="text-xs uppercase tracking-[0.05em] font-bold text-secondary">3. Resultados Analíticos</h2>
+                <span class="text-xs font-mono text-secondary">Unidad: ppm</span>
+              </div>
+              <div class="mb-10">
+                <h3 class="text-sm font-semibold text-primary-container mb-6 flex items-center">
+                  <span class="w-1 h-4 bg-tertiary-fixed-dim mr-2 inline-block rounded-sm"></span>
+                  Metales de Desgaste
+                </h3>
+                <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-6">
+                  <div>
+                    <label class="block text-xs font-medium text-on-surface-variant mb-1">Hierro (Fe)</label>
+                    <input class="w-full bg-surface-container-highest font-mono text-on-background px-3 py-2 rounded focus:outline focus:outline-1 focus:outline-primary/20 focus:bg-surface-container-lowest transition-colors text-sm text-right" step="0.1" type="number"/>
+                  </div>
+                  <div>
+                    <label class="block text-xs font-medium text-on-surface-variant mb-1">Cobre (Cu)</label>
+                    <input class="w-full bg-surface-container-highest font-mono text-on-background px-3 py-2 rounded focus:outline focus:outline-1 focus:outline-primary/20 focus:bg-surface-container-lowest transition-colors text-sm text-right" step="0.1" type="number"/>
+                  </div>
+                  <div>
+                    <label class="block text-xs font-medium text-on-surface-variant mb-1">Plomo (Pb)</label>
+                    <input class="w-full bg-surface-container-highest font-mono text-on-background px-3 py-2 rounded focus:outline focus:outline-1 focus:outline-primary/20 focus:bg-surface-container-lowest transition-colors text-sm text-right" step="0.1" type="number"/>
+                  </div>
+                  <div>
+                    <label class="block text-xs font-medium text-on-surface-variant mb-1">Estaño (Sn)</label>
+                    <input class="w-full bg-surface-container-highest font-mono text-on-background px-3 py-2 rounded focus:outline focus:outline-1 focus:outline-primary/20 focus:bg-surface-container-lowest transition-colors text-sm text-right" step="0.1" type="number"/>
+                  </div>
+                  <div>
+                    <label class="block text-xs font-medium text-on-surface-variant mb-1">Cromo (Cr)</label>
+                    <input class="w-full bg-surface-container-highest font-mono text-on-background px-3 py-2 rounded focus:outline focus:outline-1 focus:outline-primary/20 focus:bg-surface-container-lowest transition-colors text-sm text-right" step="0.1" type="number"/>
+                  </div>
+                  <div>
+                    <label class="block text-xs font-medium text-on-surface-variant mb-1">Aluminio (Al)</label>
+                    <input class="w-full bg-surface-container-highest font-mono text-on-background px-3 py-2 rounded focus:outline focus:outline-1 focus:outline-primary/20 focus:bg-surface-container-lowest transition-colors text-sm text-right" step="0.1" type="number"/>
+                  </div>
+                </div>
+              </div>
+              <div class="mb-10">
+                <h3 class="text-sm font-semibold text-primary-container mb-6 flex items-center">
+                  <span class="w-1 h-4 bg-tertiary-fixed-dim mr-2 inline-block rounded-sm"></span>
+                  Contaminantes
+                </h3>
+                <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-6">
+                  <div>
+                    <label class="block text-xs font-medium text-on-surface-variant mb-1">Silicio (Si)</label>
+                    <input class="w-full bg-surface-container-highest font-mono text-on-background px-3 py-2 rounded focus:outline focus:outline-1 focus:outline-primary/20 focus:bg-surface-container-lowest transition-colors text-sm text-right" step="0.1" type="number"/>
+                  </div>
+                  <div>
+                    <label class="block text-xs font-medium text-on-surface-variant mb-1">Sodio (Na)</label>
+                    <input class="w-full bg-surface-container-highest font-mono text-on-background px-3 py-2 rounded focus:outline focus:outline-1 focus:outline-primary/20 focus:bg-surface-container-lowest transition-colors text-sm text-right" step="0.1" type="number"/>
+                  </div>
+                  <div>
+                    <label class="block text-xs font-medium text-on-surface-variant mb-1">Potasio (K)</label>
+                    <input class="w-full bg-surface-container-highest font-mono text-on-background px-3 py-2 rounded focus:outline focus:outline-1 focus:outline-primary/20 focus:bg-surface-container-lowest transition-colors text-sm text-right" step="0.1" type="number"/>
+                  </div>
+                </div>
+              </div>
+              <div>
+                <h3 class="text-sm font-semibold text-primary-container mb-6 flex items-center">
+                  <span class="w-1 h-4 bg-tertiary-fixed-dim mr-2 inline-block rounded-sm"></span>
+                  Condición del Fluido
+                </h3>
+                <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-6">
+                  <div>
+                    <label class="flex justify-between text-xs font-medium text-on-surface-variant mb-1">
+                      <span>Visc. 100°C</span>
+                      <span class="text-[10px] text-secondary font-mono">cSt</span>
+                    </label>
+                    <input class="w-full bg-surface-container-highest font-mono text-on-background px-3 py-2 rounded focus:outline focus:outline-1 focus:outline-primary/20 focus:bg-surface-container-lowest transition-colors text-sm text-right" step="0.1" type="number"/>
+                  </div>
+                  <div>
+                    <label class="flex justify-between text-xs font-medium text-on-surface-variant mb-1">
+                      <span>TBN</span>
+                      <span class="text-[10px] text-secondary font-mono">mgKOH/g</span>
+                    </label>
+                    <input class="w-full bg-surface-container-highest font-mono text-on-background px-3 py-2 rounded focus:outline focus:outline-1 focus:outline-primary/20 focus:bg-surface-container-lowest transition-colors text-sm text-right" step="0.1" type="number"/>
+                  </div>
+                  <div>
+                    <label class="flex justify-between text-xs font-medium text-on-surface-variant mb-1">
+                      <span>Agua</span>
+                      <span class="text-[10px] text-secondary font-mono">%</span>
+                    </label>
+                    <input class="w-full bg-surface-container-highest font-mono text-on-background px-3 py-2 rounded focus:outline focus:outline-1 focus:outline-primary/20 focus:bg-surface-container-lowest transition-colors text-sm text-right" step="0.01" type="number"/>
+                  </div>
+                </div>
+              </div>
+            </section>
+
+            <div class="flex justify-end pt-6 pb-12">
+              <button type="button" class="gradient-primary text-on-primary px-8 py-4 rounded-xl font-medium tracking-wide shadow-ambient hover:opacity-90 transition-opacity flex items-center gap-3">
+                <span>Guardar y predecir</span>
+                <span class="material-symbols-outlined text-sm">memory</span>
+              </button>
+            </div>
+          </form>
+        </div>
+      </section>
+
+      <!-- ========== VISTA: REPORTES ========== -->
+      <section id="view-reportes" class="view-panel hidden">
+        <div class="pt-8 pb-6 px-6 lg:px-12 max-w-7xl mx-auto w-full">
+          <h2 class="text-4xl font-headline font-semibold text-on-background tracking-tight">Reportes de Rendimiento</h2>
+          <p class="font-mono text-sm text-on-surface-variant mt-2 tracking-wide">GENERACIÓN DE DATOS EXPORTABLES</p>
+        </div>
+        <div class="px-6 lg:px-12 pb-24 max-w-7xl mx-auto w-full flex flex-col gap-8">
+          <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
+            <div class="bg-surface-container-lowest rounded-xl p-8 flex flex-col gap-6 shadow-ambient h-full">
+              <div class="flex items-start justify-between gap-4">
+                <div>
+                  <h3 class="font-headline font-semibold text-xl text-on-background">Historial por equipo</h3>
+                  <p class="font-body text-sm text-on-surface-variant mt-1">Análisis detallado de rendimiento individual.</p>
+                </div>
+                <span class="material-symbols-outlined text-outline-variant shrink-0" style="font-variation-settings: 'wght' 200, 'FILL' 0">history</span>
+              </div>
+              <div class="flex flex-col gap-4 mt-2 flex-1">
+                <div class="flex flex-col gap-2">
+                  <label class="font-label text-xs uppercase tracking-[0.05em] text-on-surface-variant">Seleccionar Equipo</label>
+                  <div class="relative">
+                    <select class="w-full bg-surface-container-high rounded-sm px-4 py-3 font-mono text-sm text-on-surface focus:outline focus:outline-1 focus:outline-primary/20 appearance-none">
+                      <option>EXC-204 (Excavadora Frontal)</option>
+                      <option>TRK-109 (Camión Minero)</option>
+                      <option>DRL-042 (Perforadora)</option>
+                    </select>
+                    <span class="material-symbols-outlined absolute right-3 top-3 pointer-events-none text-on-surface-variant">expand_more</span>
+                  </div>
+                </div>
+                <div class="flex flex-col gap-2">
+                  <label class="font-label text-xs uppercase tracking-[0.05em] text-on-surface-variant">Rango de Fechas</label>
+                  <div class="grid grid-cols-2 gap-4">
+                    <input class="w-full bg-surface-container-high rounded-sm px-4 py-3 font-mono text-sm text-on-surface focus:outline focus:outline-1 focus:outline-primary/20" type="date" value="2023-10-01"/>
+                    <input class="w-full bg-surface-container-high rounded-sm px-4 py-3 font-mono text-sm text-on-surface focus:outline focus:outline-1 focus:outline-primary/20" type="date" value="2023-10-31"/>
+                  </div>
+                </div>
+              </div>
+              <div class="flex flex-wrap items-center gap-4 mt-4 pt-8">
+                <button type="button" class="bg-primary-container text-on-primary rounded-xl px-6 py-3 font-headline font-medium text-sm flex items-center gap-2 hover:opacity-90 transition-opacity">
+                  <span class="material-symbols-outlined text-[18px]">download</span>
+                  Exportar CSV
+                </button>
+                <button type="button" class="bg-transparent text-on-surface hover:bg-surface-container-high rounded-xl px-6 py-3 font-headline font-medium text-sm transition-colors">
+                  Ver PDF
+                </button>
+              </div>
+            </div>
+
+            <div class="bg-surface-container-lowest rounded-xl p-8 flex flex-col gap-6 shadow-ambient h-full">
+              <div class="flex items-start justify-between gap-4">
+                <div>
+                  <h3 class="font-headline font-semibold text-xl text-on-background">Resumen de flota</h3>
+                  <p class="font-body text-sm text-on-surface-variant mt-1">Métricas agregadas y estado general operativo.</p>
+                </div>
+                <span class="material-symbols-outlined text-outline-variant shrink-0" style="font-variation-settings: 'wght' 200, 'FILL' 0">dashboard</span>
+              </div>
+              <div class="flex flex-col gap-4 mt-2 flex-1">
+                <div class="flex flex-col gap-2">
+                  <label class="font-label text-xs uppercase tracking-[0.05em] text-on-surface-variant">Sector Operativo</label>
+                  <div class="relative">
+                    <select class="w-full bg-surface-container-high rounded-sm px-4 py-3 font-mono text-sm text-on-surface focus:outline focus:outline-1 focus:outline-primary/20 appearance-none">
+                      <option>Pit Norte (Extracción Principal)</option>
+                      <option>Pit Sur (Desarrollo)</option>
+                      <option>Planta de Procesamiento</option>
+                    </select>
+                    <span class="material-symbols-outlined absolute right-3 top-3 pointer-events-none text-on-surface-variant">expand_more</span>
+                  </div>
+                </div>
+                <div class="flex flex-col gap-2">
+                  <label class="font-label text-xs uppercase tracking-[0.05em] text-on-surface-variant">Tipo de Métrica</label>
+                  <div class="grid grid-cols-2 gap-4">
+                    <label class="flex items-center gap-3 p-3 bg-surface rounded-sm cursor-pointer hover:bg-surface-container-low transition-colors">
+                      <input checked class="text-primary-container focus:ring-primary-container" name="metric_type" type="radio"/>
+                      <span class="font-mono text-sm text-on-surface">Eficiencia (OEE)</span>
+                    </label>
+                    <label class="flex items-center gap-3 p-3 bg-surface rounded-sm cursor-pointer hover:bg-surface-container-low transition-colors">
+                      <input class="text-primary-container focus:ring-primary-container" name="metric_type" type="radio"/>
+                      <span class="font-mono text-sm text-on-surface">Consumo (Comb.)</span>
+                    </label>
+                  </div>
+                </div>
+              </div>
+              <div class="flex flex-wrap items-center gap-4 mt-4 pt-8">
+                <button type="button" class="bg-primary-container text-on-primary rounded-xl px-6 py-3 font-headline font-medium text-sm flex items-center gap-2 hover:opacity-90 transition-opacity">
+                  <span class="material-symbols-outlined text-[18px]">table_chart</span>
+                  Exportar Excel
+                </button>
+                <button type="button" class="bg-transparent text-on-surface hover:bg-surface-container-high rounded-xl px-6 py-3 font-headline font-medium text-sm transition-colors">
+                  Programar Envío
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script>
+    (function () {
+      var VIEWS = ['flota', 'equipo', 'muestra', 'reportes'];
+      var panels = {
+        flota: document.getElementById('view-flota'),
+        equipo: document.getElementById('view-equipo'),
+        muestra: document.getElementById('view-muestra'),
+        reportes: document.getElementById('view-reportes')
+      };
+
+      function setActiveNav(id) {
+        document.querySelectorAll('.nav-side').forEach(function (el) {
+          var v = el.getAttribute('data-view');
+          el.classList.toggle('nav-active', v === id);
+          el.classList.toggle('nav-inactive', v !== id);
+        });
+        document.querySelectorAll('.nav-top').forEach(function (el) {
+          var v = el.getAttribute('data-view');
+          el.classList.toggle('nav-active', v === id);
+          el.classList.toggle('nav-inactive', v !== id);
+        });
+        document.querySelectorAll('.nav-mob').forEach(function (el) {
+          var v = el.getAttribute('data-view');
+          el.classList.toggle('nav-active', v === id);
+          el.classList.toggle('nav-inactive', v !== id);
+        });
+      }
+
+      function showView(id) {
+        if (VIEWS.indexOf(id) === -1) id = 'flota';
+        VIEWS.forEach(function (v) {
+          panels[v].classList.toggle('hidden', v !== id);
+        });
+        setActiveNav(id);
+        if (history.replaceState) {
+          history.replaceState(null, '', '#' + id);
+        }
+        document.title = 'OilMine Analytics — ' + ({ flota: 'Flota', equipo: 'Equipo HT012', muestra: 'Nueva Muestra', reportes: 'Reportes' }[id] || 'Mining Ops');
+      }
+
+      document.querySelectorAll('[data-view]').forEach(function (el) {
+        el.addEventListener('click', function (e) {
+          var id = el.getAttribute('data-view');
+          if (!id) return;
+          e.preventDefault();
+          showView(id);
+        });
+      });
+
+      function initFromHash() {
+        var h = (location.hash || '').replace(/^#/, '');
+        if (VIEWS.indexOf(h) !== -1) showView(h);
+        else showView('flota');
+      }
+
+      window.addEventListener('hashchange', initFromHash);
+      initFromHash();
+    })();
+  </script>
+</body>
+</html>
