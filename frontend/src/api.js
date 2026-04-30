@@ -1,9 +1,13 @@
-// Cliente HTTP — todas las llamadas al backend pasan por /api (proxy de Vite).
+// Cliente HTTP. La sesión viaja en cookie HttpOnly enviada con credentials.
 const BASE = '/api'
 
 async function request(path, opts = {}) {
   const res = await fetch(`${BASE}${path}`, {
-    headers: { 'Content-Type': 'application/json', ...(opts.headers || {}) },
+    credentials: 'include',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(opts.headers || {}),
+    },
     ...opts,
   })
   if (!res.ok) {
@@ -16,21 +20,40 @@ async function request(path, opts = {}) {
 }
 
 export const api = {
-  health:         ()                 => request('/health'),
-  variables:      ()                 => request('/variables'),
-  listarEquipos:  ()                 => request('/equipos'),
-  resumenFlota:   ()                 => request('/flota/resumen'),
-  prediccion:     (id)               => request(`/equipos/${id}/prediccion`),
-  historial:      (id)               => request(`/equipos/${id}/historial`),
-  registrarMuestra: (id, body)       => request(`/equipos/${id}/muestras`, {
-    method: 'POST', body: JSON.stringify(body),
-  }),
-  exportar:       (id, formato, fechaDesde = '', fechaHasta = '') => {
+  health: () => request('/health'),
+
+  variables: () => request('/variables'),
+  listarEquipos: () => request('/equipos'),
+  resumenFlota: () => request('/flota/resumen'),
+  prediccion: (id) => request(`/equipos/${id}/prediccion`),
+  historial: (id) => request(`/equipos/${id}/historial`),
+  registrarMuestra: (id, body) =>
+    request(`/equipos/${id}/muestras`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+
+  me: () => request('/me'),
+
+  adminUsers: () => request('/admin/users'),
+  adminPatchRole: (userId, role) =>
+    request(`/admin/users/${userId}/role`, {
+      method: 'PATCH',
+      body: JSON.stringify({ role }),
+    }),
+
+  exportar: (id, formato, fechaDesde = '', fechaHasta = '') => {
     const params = new URLSearchParams({ formato })
     if (fechaDesde) params.set('fecha_desde', fechaDesde)
     if (fechaHasta) params.set('fecha_hasta', fechaHasta)
-    return fetch(`${BASE}/equipos/${id}/exportar?${params.toString()}`)
+    return fetch(`${BASE}/equipos/${id}/exportar?${params.toString()}`, {
+      credentials: 'include',
+      headers: { Accept: '*/*' },
+    })
   },
-  exportarFlota:  (formato)          =>
-    fetch(`${BASE}/flota/exportar?formato=${formato}`),
+  exportarFlota: (formato) =>
+    fetch(`${BASE}/flota/exportar?formato=${formato}`, {
+      credentials: 'include',
+      headers: { Accept: '*/*' },
+    }),
 }

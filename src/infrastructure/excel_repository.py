@@ -1,14 +1,8 @@
-"""Repositorio Excel — carga y escritura del archivo de muestras.
+"""Repositorio Excel: carga y escritura del archivo de muestras por tenant.
 
-Optimizaciones:
-- Snapshot Parquet (`.cache/data_flota.parquet`) para acelerar el boot:
-  leer XLSX demora ~1–3 s; leer Parquet demora ~10–50 ms. Se regenera
-  automáticamente si el XLSX es más nuevo.
-- Append incremental: al registrar una muestra nueva, no invalidamos todo
-  el DF en memoria — concatenamos la fila al cache y refrescamos Parquet.
-  Eso evita re-leer el XLSX tras cada POST.
-- `dataframe()` devuelve una referencia read-only al DF (no copy). Los
-  repositorios sólo hacen filtros/groupby, no mutaciones.
+Cada tenant tiene su propio XLSX bajo ``data/tenants/<tenant>/``. La lectura
+mantiene el snapshot Parquet local al tenant y el append incremental del
+DataFrame en memoria.
 """
 from __future__ import annotations
 
@@ -23,113 +17,86 @@ from openpyxl import load_workbook
 
 from src.application import IEquipoRepository, IMuestraRepository
 from src.domain import Equipo, EstadoEquipo, Muestra
-from src.infrastructure.settings import (
-    EXCEL_PATH,
-    EXCEL_SHEET,
-    VARIABLES_ANALITICAS,
-)
+from src.infrastructure.settings import EXCEL_PATH, EXCEL_SHEET, VARIABLES_ANALITICAS
 
 logger = logging.getLogger("oilmine.excel")
 
 
-# ----------------------------------------------------------------------
-# Snapshot Parquet
-# ----------------------------------------------------------------------
-PARQUET_CACHE_DIR = EXCEL_PATH.parent / ".cache"
-PARQUET_PATH: Path = PARQUET_CACHE_DIR / "data_flota.parquet"
-
-
-def _parquet_is_fresh() -> bool:
-    """True si el Parquet existe y es más nuevo que el XLSX."""
-    if not PARQUET_PATH.exists() or not EXCEL_PATH.exists():
-        return False
-    return PARQUET_PATH.stat().st_mtime >= EXCEL_PATH.stat().st_mtime
-
-
 def _normalize_for_parquet(df: pd.DataFrame) -> pd.DataFrame:
-    """Coacciona columnas `object` mixtas a string para que Parquet las acepte.
-
-    El XLSX tiene columnas "extra" que no usamos en el modelo (p.ej.
-    'Viscosidad a 40 °C cSt' con valores '-' mezclados con números). Pyarrow
-    exige un solo tipo por columna, así que las estandarizamos a string.
-    No tocamos columnas ya tipadas (int/float/datetime) ni las variables
-    analíticas que ya pasaron por `pd.to_numeric`.
-    """
+    """Coacciona columnas object mixtas a string para que Parquet las acepte."""
     df2 = df.copy()
     for col in df2.columns:
         if df2[col].dtype == "object" and col not in {"Equipo", "Estado"}:
-            # Muestra el tipo de los primeros no-null para decidir.
             try:
                 df2[col] = df2[col].astype("string")
             except Exception:
-                df2[col] = df2[col].map(
-                    lambda x: None if pd.isna(x) else str(x)
-                )
+                df2[col] = df2[col].map(lambda x: None if pd.isna(x) else str(x))
     return df2
 
 
-def _write_parquet(df: pd.DataFrame) -> None:
-    """Guarda `df` como Parquet; silencioso si falla (no debe romper la app)."""
+def _write_parquet(parquet_path: Path, cache_dir: Path, df: pd.DataFrame) -> None:
     try:
-        PARQUET_CACHE_DIR.mkdir(parents=True, exist_ok=True)
-        _normalize_for_parquet(df).to_parquet(PARQUET_PATH, index=False)
-        logger.info(f"Snapshot Parquet guardado: {PARQUET_PATH.name} ({len(df)} filas)")
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        _normalize_for_parquet(df).to_parquet(parquet_path, index=False)
+        logger.info("Snapshot Parquet guardado: %s (%s filas)", parquet_path.name, len(df))
     except Exception as e:
-        logger.warning(f"No se pudo escribir snapshot Parquet: {e}")
+        logger.warning("No se pudo escribir snapshot Parquet: %s", e)
 
 
-# ======================================================================
-# ExcelManager — singleton thread-safe
-# ======================================================================
+def _parquet_is_fresh(excel_path: Path, parquet_path: Path) -> bool:
+    if not parquet_path.exists() or not excel_path.exists():
+        return False
+    return parquet_path.stat().st_mtime >= excel_path.stat().st_mtime
+
+
 class ExcelManager:
-    """Singleton: lee Excel/Parquet una vez en memoria, apendiza incremental."""
+    """Lee Excel/Parquet una vez en memoria y apendiza incremental."""
 
-    _instance: Optional["ExcelManager"] = None
-    _lock = threading.Lock()
+    def __init__(
+        self,
+        excel_path: Path = EXCEL_PATH,
+        sheet_name: str = EXCEL_SHEET,
+    ) -> None:
+        self._excel_path = Path(excel_path)
+        self._sheet_name = sheet_name
+        self._io_lock = threading.Lock()
+        self._df: Optional[pd.DataFrame] = None
+        self._header: Optional[List[str]] = None
 
-    def __new__(cls):
-        if cls._instance is None:
-            with cls._lock:
-                if cls._instance is None:
-                    obj = super().__new__(cls)
-                    obj._io_lock = threading.Lock()
-                    obj._df: Optional[pd.DataFrame] = None
-                    obj._header: Optional[List[str]] = None
-                    cls._instance = obj
-        return cls._instance
+    @property
+    def excel_path(self) -> Path:
+        return self._excel_path
 
-    # ------------------------------------------------------------------
-    # Lectura
-    # ------------------------------------------------------------------
+    @property
+    def parquet_dir(self) -> Path:
+        return self._excel_path.parent / ".cache"
+
+    @property
+    def parquet_path(self) -> Path:
+        return self.parquet_dir / "data_flota.parquet"
+
     def _load(self) -> None:
-        """Carga el DF en memoria. Prefiere Parquet si está fresco."""
         df: Optional[pd.DataFrame] = None
+        parquet_path = self.parquet_path
+        excel_path = self._excel_path
 
-        if _parquet_is_fresh():
+        if _parquet_is_fresh(excel_path, parquet_path):
             try:
-                df = pd.read_parquet(PARQUET_PATH)
-                logger.info(
-                    f"Datos cargados desde Parquet ({len(df)} filas) — skip XLSX"
-                )
+                df = pd.read_parquet(parquet_path)
+                logger.info("Datos cargados desde Parquet (%s filas)", len(df))
             except Exception as e:
-                logger.warning(f"Parquet corrupto, recurro al XLSX: {e}")
+                logger.warning("Parquet corrupto, recurro al XLSX: %s", e)
                 df = None
 
         if df is None:
-            df = pd.read_excel(EXCEL_PATH, sheet_name=EXCEL_SHEET)
+            df = pd.read_excel(excel_path, sheet_name=self._sheet_name)
             df["Fecha"] = pd.to_datetime(df["Fecha"], errors="coerce")
             df["Hora_Producto"] = pd.to_numeric(df["Hora_Producto"], errors="coerce")
             for col in VARIABLES_ANALITICAS:
                 if col in df.columns:
                     df[col] = pd.to_numeric(df[col], errors="coerce")
-            # Snapshot para próximos arranques.
-            _write_parquet(df)
+            _write_parquet(parquet_path, self.parquet_dir, df)
 
-        # Orden cronológico: primero por fecha (señal temporal real),
-        # luego Hora_Producto como desempate (dos muestras del mismo día
-        # dentro de un ciclo). Así una muestra recién registrada siempre
-        # queda como "última" aunque su Hora_Producto sea menor (p.ej.
-        # después de un cambio de aceite).
         df = df.sort_values(["Equipo", "Fecha", "Hora_Producto"]).reset_index(drop=True)
         self._df = df
         self._header = list(df.columns)
@@ -139,88 +106,66 @@ class ExcelManager:
             self._load()
 
     def dataframe(self) -> pd.DataFrame:
-        """Devuelve el DF cacheado (sin copy — usarlo read-only)."""
         with self._io_lock:
             self._ensure_loaded()
             return self._df  # type: ignore[return-value]
 
     def preload(self) -> None:
-        """Fuerza la carga del DF en memoria. Llamar al arranque."""
         with self._io_lock:
             self._ensure_loaded()
 
     def rebuild_parquet(self) -> None:
-        """Regenera el Parquet desde el XLSX. Útil si el snapshot queda stale."""
         with self._io_lock:
             self._df = None
             self._load()
 
-    # ------------------------------------------------------------------
-    # Escritura
-    # ------------------------------------------------------------------
     def append_row(self, row: Dict[str, object]) -> None:
-        """Añade una fila al Excel y al DF en memoria sin invalidar el cache.
-
-        Las columnas no presentes en `row` quedan vacías.
-        """
+        """Añade una fila al Excel y al DataFrame cacheado."""
         with self._io_lock:
-            # 1. Persistir en Excel (openpyxl preserva formato original)
-            wb = load_workbook(EXCEL_PATH)
-            ws = wb[EXCEL_SHEET]
+            wb = load_workbook(self._excel_path)
+            ws = wb[self._sheet_name]
             header = [c.value for c in ws[1]]
             new_row = [row.get(col, None) for col in header]
             ws.append(new_row)
-            wb.save(EXCEL_PATH)
+            wb.save(self._excel_path)
             wb.close()
 
-            # 2. Append incremental al DF en memoria (si ya estaba cargado)
-            if self._df is not None:
-                new_df_row = {col: row.get(col, None) for col in self._df.columns}
-                # Coerción de tipos consistente con _load()
-                if "Fecha" in new_df_row and new_df_row["Fecha"] is not None:
-                    new_df_row["Fecha"] = pd.to_datetime(
-                        new_df_row["Fecha"], errors="coerce"
-                    )
-                if "Hora_Producto" in new_df_row:
-                    new_df_row["Hora_Producto"] = pd.to_numeric(
-                        new_df_row["Hora_Producto"], errors="coerce"
-                    )
-                for col in VARIABLES_ANALITICAS:
-                    if col in new_df_row:
-                        new_df_row[col] = pd.to_numeric(
-                            new_df_row[col], errors="coerce"
-                        )
-                self._df = pd.concat(
-                    [self._df, pd.DataFrame([new_df_row])],
-                    ignore_index=True,
+            if self._df is None:
+                return
+
+            new_df_row = {col: row.get(col, None) for col in self._df.columns}
+            if "Fecha" in new_df_row and new_df_row["Fecha"] is not None:
+                new_df_row["Fecha"] = pd.to_datetime(
+                    new_df_row["Fecha"], errors="coerce"
                 )
-                self._df = self._df.sort_values(
-                    ["Equipo", "Fecha", "Hora_Producto"]
-                ).reset_index(drop=True)
+            if "Hora_Producto" in new_df_row:
+                new_df_row["Hora_Producto"] = pd.to_numeric(
+                    new_df_row["Hora_Producto"], errors="coerce"
+                )
+            for col in VARIABLES_ANALITICAS:
+                if col in new_df_row:
+                    new_df_row[col] = pd.to_numeric(
+                        new_df_row[col], errors="coerce"
+                    )
 
-                # 3. Refrescar Parquet en background (no bloquear el append)
-                try:
-                    _write_parquet(self._df)
-                except Exception:
-                    pass
-            else:
-                # Aún no se había cargado: lazy-load en la próxima lectura.
-                self._df = None
+            self._df = pd.concat(
+                [self._df, pd.DataFrame([new_df_row])],
+                ignore_index=True,
+            )
+            self._df = self._df.sort_values(
+                ["Equipo", "Fecha", "Hora_Producto"]
+            ).reset_index(drop=True)
+            _write_parquet(self.parquet_path, self.parquet_dir, self._df)
 
 
-# ======================================================================
-# Repositorios
-# ======================================================================
 class ExcelEquipoRepository(IEquipoRepository):
     def __init__(self, manager: Optional[ExcelManager] = None) -> None:
         self.manager = manager or ExcelManager()
 
-    # ------------------------------------------------------------------
     def listar_ids(self) -> List[str]:
         df = self.manager.dataframe()
         return sorted(df["Equipo"].dropna().unique().tolist())
 
-    # ------------------------------------------------------------------
     def obtener(self, equipo_id: str) -> Equipo:
         df = self.manager.dataframe()
         grp = (
@@ -230,9 +175,9 @@ class ExcelEquipoRepository(IEquipoRepository):
         )
         if grp.empty:
             raise ValueError(f"Equipo '{equipo_id}' no existe en el Excel")
+
         return self._build_equipo(equipo_id, grp)
 
-    # ------------------------------------------------------------------
     def obtener_todos(self) -> List[Equipo]:
         df = self.manager.dataframe()
         equipos: List[Equipo] = []
@@ -241,30 +186,28 @@ class ExcelEquipoRepository(IEquipoRepository):
             equipos.append(self._build_equipo(str(equipo_id), grp))
         return equipos
 
-    # ------------------------------------------------------------------
     def _build_equipo(self, equipo_id: str, grp: pd.DataFrame) -> Equipo:
         muestras: List[Muestra] = []
-        for _, r in grp.iterrows():
-            estado_raw = r.get("Estado")
+        for _, row in grp.iterrows():
+            estado_raw = row.get("Estado")
             try:
                 estado = EstadoEquipo(estado_raw) if pd.notna(estado_raw) else None
             except ValueError:
                 estado = None
 
             variables: Dict[str, float] = {}
-            for v in VARIABLES_ANALITICAS:
-                val = r.get(v)
-                if pd.notna(val):
-                    variables[v] = float(val)
-                else:
-                    variables[v] = float("nan")
+            for var in VARIABLES_ANALITICAS:
+                value = row.get(var)
+                variables[var] = float(value) if pd.notna(value) else float("nan")
 
-            hora = r.get("Hora_Producto")
+            hora = row.get("Hora_Producto")
             if pd.isna(hora):
                 continue
-            fecha_val = r.get("Fecha")
+            fecha_val = row.get("Fecha")
             fecha_obj = (
-                fecha_val.date() if isinstance(fecha_val, (pd.Timestamp, datetime)) else None
+                fecha_val.date()
+                if isinstance(fecha_val, (pd.Timestamp, datetime))
+                else None
             )
 
             muestras.append(

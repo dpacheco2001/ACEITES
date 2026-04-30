@@ -101,3 +101,61 @@ class VariablesResponse(BaseModel):
     variables: List[str]
     baja_confianza: List[str]
     limites: List[LimiteAlertaSchema]
+
+
+# ======================================================================
+# Autenticación / admin
+# ======================================================================
+class GoogleClientConfigResponse(BaseModel):
+    google_client_id: str = ""
+
+
+class GoogleAuthRequest(BaseModel):
+    id_token: str = Field(..., min_length=10)
+
+
+class UserPublic(BaseModel):
+    id: int
+    email: str
+    org_id: int
+    tenant_key: str
+    role: str
+
+
+class AuthResponse(BaseModel):
+    user: UserPublic
+    expires_in_seconds: int
+
+
+class MeResponse(BaseModel):
+    user: UserPublic
+
+
+class LogoutResponse(BaseModel):
+    ok: bool = True
+
+
+class AdminUserItem(BaseModel):
+    id: int
+    email: str
+    role: str
+    created_at: str
+
+
+class AdminUsersResponse(BaseModel):
+    users: List[AdminUserItem]
+
+
+class AdminRolePatch(BaseModel):
+    role: str = Field(pattern="^(ADMIN|CLIENTE)$")
+
+
+# ======================================================================
+# Atlas
+# ======================================================================
+class AtlasSliceRequest(BaseModel):
+    equipo_id: Optional[str] = None
+    variables: Optional[List[str]] = None
+    fecha_desde: Optional[date] = None
+    fecha_hasta: Optional[date] = None
+    max_rows: int = Field(default=500, ge=1, le=1000)

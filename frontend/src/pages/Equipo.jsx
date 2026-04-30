@@ -5,6 +5,7 @@ import {
   Tooltip, XAxis, YAxis,
 } from 'recharts'
 import { api } from '../api.js'
+import EquipoRail from '../components/EquipoRail.jsx'
 import { MSIcon } from '../components/Layout.jsx'
 import { temaSemaforo, fmtHoras, fmtHorasAceite } from '../semaforo_theme.js'
 
@@ -52,19 +53,26 @@ export default function Equipo() {
   const horaPred = pred?.horas_actuales ? pred.horas_actuales + 80 : null
 
   if (err) return (
-    <section className="p-6 md:p-10">
-      <div className="bg-error-container rounded-xl p-6 text-on-error-container">Error: {err}</div>
-    </section>
+    <EquipoFrame activeId={id}>
+      <section className="flex-1 p-6 md:p-10">
+        <div className="bg-error-container rounded-xl p-6 text-on-error-container">Error: {err}</div>
+      </section>
+    </EquipoFrame>
   )
   if (!pred || !histo || !meta) return (
-    <section className="p-6 md:p-10"><div className="bg-surface-container-low rounded-xl p-10 animate-pulse h-96" /></section>
+    <EquipoFrame activeId={id}>
+      <section className="flex-1 p-6 md:p-10">
+        <div className="bg-surface-container-low rounded-xl p-10 animate-pulse h-96" />
+      </section>
+    </EquipoFrame>
   )
 
   const sem = temaSemaforo(pred.semaforo)
   const ultimoValor = histo.historial[0]?.valores
 
   return (
-    <section className="p-6 md:p-10 lg:p-12">
+    <EquipoFrame activeId={id}>
+    <section className="flex-1 p-6 md:p-10 lg:p-12">
       <div className="max-w-7xl mx-auto space-y-8">
 
         {/* Breadcrumb */}
@@ -183,7 +191,7 @@ export default function Equipo() {
                 Curva de degradación
               </h2>
               <p className="text-xs text-on-surface-variant mt-1">
-                Eje X: Hora_Producto (horas acumuladas del aceite). ★ = predicción t+1.
+                Eje X: Hora_Producto (horas acumuladas del aceite). P = predicción t+1.
               </p>
             </div>
             <select
@@ -219,7 +227,7 @@ export default function Equipo() {
                 {predVal != null && horaPred != null && (
                   <ReferenceDot x={horaPred} y={predVal} r={10}
                                 fill="#dec29a" stroke="#131b2e" strokeWidth={2}
-                                label={{ value: '★', position: 'center', fill: '#131b2e', fontSize: 14, fontWeight: 800 }} />
+                                label={{ value: 'P', position: 'center', fill: '#131b2e', fontSize: 12, fontWeight: 800 }} />
                 )}
               </LineChart>
             </ResponsiveContainer>
@@ -313,6 +321,16 @@ export default function Equipo() {
         </section>
       </div>
     </section>
+    </EquipoFrame>
+  )
+}
+
+function EquipoFrame({ activeId, children }) {
+  return (
+    <div className="flex min-h-full flex-col md:flex-row">
+      <EquipoRail activeId={activeId} />
+      {children}
+    </div>
   )
 }
 

@@ -1,0 +1,355 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+SCRIPT_PATH="${BASH_SOURCE[0]}"
+if command -v readlink >/dev/null 2>&1; then
+  SCRIPT_PATH="$(readlink -f "$SCRIPT_PATH")"
+fi
+ROOT_DIR="$(cd "$(dirname "$SCRIPT_PATH")/.." && pwd)"
+FRONTEND_DIR="$ROOT_DIR/frontend"
+ATLAS_DIR="$ROOT_DIR/atlas-service"
+VENV_DIR="${ACEITES_VENV_DIR:-$ROOT_DIR/.venv-linux}"
+RUNTIME_DIR="${ACEITES_RUNTIME_DIR:-$ROOT_DIR/.runtime}"
+
+BACKEND_PORT="${ACEITES_BACKEND_PORT:-8000}"
+FRONTEND_PORT="${ACEITES_FRONTEND_PORT:-5173}"
+ATLAS_PORT="${ATLAS_PORT:-8787}"
+BACKEND_URL="http://127.0.0.1:${BACKEND_PORT}"
+FRONTEND_URL="http://127.0.0.1:${FRONTEND_PORT}"
+ATLAS_URL="http://127.0.0.1:${ATLAS_PORT}"
+
+BACKEND_PID="$RUNTIME_DIR/backend.pid"
+FRONTEND_PID="$RUNTIME_DIR/frontend.pid"
+ATLAS_PID="$RUNTIME_DIR/atlas.pid"
+BACKEND_LOG="$RUNTIME_DIR/backend.log"
+FRONTEND_LOG="$RUNTIME_DIR/frontend.log"
+ATLAS_LOG="$RUNTIME_DIR/atlas.log"
+
+info() { printf '[aceites] %s\n' "$*"; }
+warn() { printf '[aceites] WARN: %s\n' "$*" >&2; }
+die() { printf '[aceites] ERROR: %s\n' "$*" >&2; exit 1; }
+
+usage() {
+  cat <<'USAGE'
+Usage:
+  aceites on        Start backend and frontend
+  aceites off       Stop backend and frontend
+  aceites status    Show process and endpoint status
+  aceites logs      Tail backend and frontend logs
+
+Environment:
+  ACEITES_BACKEND_PORT   Backend port, default 8000
+  ACEITES_FRONTEND_PORT  Frontend port, default 5173
+  ATLAS_PORT             Atlas service port, default 8787
+  ACEITES_VENV_DIR       Python venv path, default .venv-linux
+USAGE
+}
+
+need_cmd() {
+  command -v "$1" >/dev/null 2>&1 || die "Missing command: $1"
+}
+
+hash_file() {
+  sha256sum "$1" | awk '{print $1}'
+}
+
+pid_running() {
+  local pid_file="$1"
+  [[ -s "$pid_file" ]] || return 1
+  local pid
+  pid="$(cat "$pid_file")"
+  [[ "$pid" =~ ^[0-9]+$ ]] || return 1
+  kill -0 "$pid" >/dev/null 2>&1
+}
+
+ensure_dirs() {
+  mkdir -p "$RUNTIME_DIR"
+}
+
+ensure_backend_deps() {
+  need_cmd python3
+  need_cmd sha256sum
+
+  if [[ ! -x "$VENV_DIR/bin/python" ]]; then
+    info "Creating Linux Python venv at $VENV_DIR"
+    python3 -m venv "$VENV_DIR"
+  fi
+
+  local req_file="$ROOT_DIR/requirements.txt"
+  local stamp_file="$VENV_DIR/.requirements.hash"
+  [[ -f "$req_file" ]] || die "requirements.txt not found"
+
+  local req_hash
+  req_hash="$(hash_file "$req_file")"
+  if [[ ! -f "$stamp_file" || "$(cat "$stamp_file")" != "$req_hash" ]]; then
+    info "Installing backend dependencies"
+    "$VENV_DIR/bin/python" -m pip install --upgrade pip
+    "$VENV_DIR/bin/python" -m pip install -r "$req_file"
+    printf '%s\n' "$req_hash" > "$stamp_file"
+  fi
+}
+
+ensure_frontend_deps() {
+  need_cmd node
+  need_cmd npm
+  need_cmd sha256sum
+
+  [[ -f "$FRONTEND_DIR/package.json" ]] || die "frontend/package.json not found"
+
+  local stamp_file="$FRONTEND_DIR/.pkg.hash"
+  local pkg_hash
+  if [[ -f "$FRONTEND_DIR/package-lock.json" ]]; then
+    pkg_hash="$(cat "$FRONTEND_DIR/package.json" "$FRONTEND_DIR/package-lock.json" | sha256sum | awk '{print $1}')"
+  else
+    pkg_hash="$(hash_file "$FRONTEND_DIR/package.json")"
+  fi
+
+  if [[ ! -d "$FRONTEND_DIR/node_modules" || ! -f "$stamp_file" || "$(cat "$stamp_file")" != "$pkg_hash" ]]; then
+    info "Installing frontend dependencies"
+    (cd "$FRONTEND_DIR" && npm install)
+    printf '%s\n' "$pkg_hash" > "$stamp_file"
+  fi
+
+  # Some checked-in node_modules entries came from Windows and are not
+  # executable on Linux. Repair local CLI shims before starting Vite.
+  chmod +x "$FRONTEND_DIR"/node_modules/.bin/* >/dev/null 2>&1 || true
+  find "$FRONTEND_DIR/node_modules" -path '*/bin/*' -type f -exec chmod +x {} + 2>/dev/null || true
+}
+
+ensure_atlas_deps() {
+  need_cmd node
+  need_cmd npm
+  need_cmd sha256sum
+
+  [[ -f "$ATLAS_DIR/package.json" ]] || die "atlas-service/package.json not found"
+
+  local stamp_file="$ATLAS_DIR/.pkg.hash"
+  local pkg_hash
+  if [[ -f "$ATLAS_DIR/package-lock.json" ]]; then
+    pkg_hash="$(cat "$ATLAS_DIR/package.json" "$ATLAS_DIR/package-lock.json" | sha256sum | awk '{print $1}')"
+  else
+    pkg_hash="$(hash_file "$ATLAS_DIR/package.json")"
+  fi
+
+  if [[ ! -d "$ATLAS_DIR/node_modules" || ! -f "$stamp_file" || "$(cat "$stamp_file")" != "$pkg_hash" ]]; then
+    info "Installing Atlas dependencies"
+    (cd "$ATLAS_DIR" && npm install)
+    printf '%s\n' "$pkg_hash" > "$stamp_file"
+  fi
+}
+
+validate_assets() {
+  local excel="$ROOT_DIR/DATA FLOTA 794AC - MOTOR ORIGINAL QUELLAVECO_R4L 2024.xlsx"
+  [[ -f "$excel" ]] || die "Source Excel not found: $excel"
+
+  local required=(
+    "$ROOT_DIR/models/clasificador_estado_xgboost.pkl"
+    "$ROOT_DIR/models/estimador_horas_hasta_critico.pkl"
+    "$ROOT_DIR/models/feat_cols.json"
+  )
+  local path
+  for path in "${required[@]}"; do
+    [[ -f "$path" ]] || die "Required model asset missing: $path"
+  done
+
+  local regressors
+  regressors="$(find "$ROOT_DIR/models" -maxdepth 1 -name 'regresor_*.pkl' | wc -l)"
+  if [[ "$regressors" -lt 12 ]]; then
+    warn "Expected 12 variable regressors, found $regressors"
+  fi
+}
+
+wait_for_url() {
+  local url="$1"
+  local label="$2"
+  local attempts="${3:-60}"
+
+  for _ in $(seq 1 "$attempts"); do
+    if curl -fsS "$url" >/dev/null 2>&1; then
+      info "$label is ready at $url"
+      return 0
+    fi
+    sleep 1
+  done
+  return 1
+}
+
+start_backend() {
+  if pid_running "$BACKEND_PID"; then
+    info "Backend already running with PID $(cat "$BACKEND_PID")"
+    return 0
+  fi
+
+  ensure_backend_deps
+  validate_assets
+
+  info "Starting backend on ${BACKEND_URL}"
+  (
+    cd "$ROOT_DIR"
+    nohup setsid "$VENV_DIR/bin/python" run_api.py >> "$BACKEND_LOG" 2>&1 < /dev/null &
+    printf '%s\n' "$!" > "$BACKEND_PID"
+  )
+
+  if ! wait_for_url "$BACKEND_URL/health" "Backend" 90; then
+    warn "Backend did not pass health check. See $BACKEND_LOG"
+    return 1
+  fi
+}
+
+start_frontend() {
+  if pid_running "$FRONTEND_PID"; then
+    info "Frontend already running with PID $(cat "$FRONTEND_PID")"
+    return 0
+  fi
+
+  ensure_frontend_deps
+
+  info "Starting frontend on ${FRONTEND_URL}"
+  (
+    cd "$FRONTEND_DIR"
+    nohup setsid npm run dev -- --host 0.0.0.0 --port "$FRONTEND_PORT" --strictPort >> "$FRONTEND_LOG" 2>&1 < /dev/null &
+    printf '%s\n' "$!" > "$FRONTEND_PID"
+  )
+
+  if ! wait_for_url "$FRONTEND_URL" "Frontend" 45; then
+    warn "Frontend did not answer in time. See $FRONTEND_LOG"
+    return 1
+  fi
+}
+
+start_atlas() {
+  if pid_running "$ATLAS_PID"; then
+    info "Atlas already running with PID $(cat "$ATLAS_PID")"
+    return 0
+  fi
+
+  ensure_atlas_deps
+
+  info "Starting Atlas on ${ATLAS_URL}"
+  (
+    cd "$ATLAS_DIR"
+    nohup setsid npm run dev >> "$ATLAS_LOG" 2>&1 < /dev/null &
+    printf '%s\n' "$!" > "$ATLAS_PID"
+  )
+
+  if ! wait_for_url "$ATLAS_URL/health" "Atlas" 45; then
+    warn "Atlas did not answer in time. See $ATLAS_LOG"
+    return 1
+  fi
+}
+
+stop_one() {
+  local label="$1"
+  local pid_file="$2"
+
+  if ! pid_running "$pid_file"; then
+    rm -f "$pid_file"
+    info "$label is not running"
+    return 0
+  fi
+
+  local pid
+  pid="$(cat "$pid_file")"
+  info "Stopping $label PID $pid"
+  kill -- "-$pid" >/dev/null 2>&1 || kill "$pid" >/dev/null 2>&1 || true
+
+  for _ in $(seq 1 20); do
+    if ! kill -0 "$pid" >/dev/null 2>&1 && ! kill -0 -- "-$pid" >/dev/null 2>&1; then
+      rm -f "$pid_file"
+      info "$label stopped"
+      return 0
+    fi
+    sleep 0.25
+  done
+
+  warn "$label did not stop gracefully, forcing"
+  kill -9 -- "-$pid" >/dev/null 2>&1 || kill -9 "$pid" >/dev/null 2>&1 || true
+  rm -f "$pid_file"
+}
+
+stop_matching() {
+  local label="$1"
+  local pattern="$2"
+  local self_pgid
+  self_pgid="$(ps -o pgid= -p "$$" | tr -d ' ')"
+
+  local pids
+  pids="$(pgrep -f "$pattern" 2>/dev/null || true)"
+  [[ -n "$pids" ]] || return 0
+
+  local pid pgid
+  while read -r pid; do
+    [[ -n "$pid" && "$pid" != "$$" ]] || continue
+    pgid="$(ps -o pgid= -p "$pid" 2>/dev/null | tr -d ' ')"
+    [[ -n "$pgid" && "$pgid" != "$self_pgid" ]] || continue
+    info "Stopping $label orphan PID $pid"
+    kill -- "-$pgid" >/dev/null 2>&1 || kill "$pid" >/dev/null 2>&1 || true
+  done <<< "$pids"
+}
+
+status_one() {
+  local label="$1"
+  local pid_file="$2"
+  local url="$3"
+
+  if pid_running "$pid_file"; then
+    printf '%-9s running  pid=%s' "$label" "$(cat "$pid_file")"
+  else
+    printf '%-9s stopped ' "$label"
+  fi
+
+  if curl -fsS "$url" >/dev/null 2>&1; then
+    printf '  url=%s ok\n' "$url"
+  else
+    printf '  url=%s down\n' "$url"
+  fi
+}
+
+cmd_on() {
+  ensure_dirs
+  start_backend
+  start_atlas
+  start_frontend
+  status_one "Backend" "$BACKEND_PID" "$BACKEND_URL/health"
+  status_one "Atlas" "$ATLAS_PID" "$ATLAS_URL/health"
+  status_one "Frontend" "$FRONTEND_PID" "$FRONTEND_URL"
+}
+
+cmd_off() {
+  ensure_dirs
+  stop_one "frontend" "$FRONTEND_PID"
+  stop_matching "frontend" "$ROOT_DIR/frontend/.*vite.*--port $FRONTEND_PORT"
+  stop_matching "frontend" "npm run dev.*--port $FRONTEND_PORT"
+  stop_one "atlas" "$ATLAS_PID"
+  stop_matching "atlas" "$ATLAS_DIR/.*tsx src/server.ts"
+  stop_matching "atlas" "npm run dev.*atlas-service"
+  stop_one "backend" "$BACKEND_PID"
+  stop_matching "backend" "$VENV_DIR/bin/python run_api.py"
+}
+
+cmd_status() {
+  ensure_dirs
+  status_one "Backend" "$BACKEND_PID" "$BACKEND_URL/health"
+  status_one "Atlas" "$ATLAS_PID" "$ATLAS_URL/health"
+  status_one "Frontend" "$FRONTEND_PID" "$FRONTEND_URL"
+}
+
+cmd_logs() {
+  ensure_dirs
+  touch "$BACKEND_LOG" "$ATLAS_LOG" "$FRONTEND_LOG"
+  tail -n 80 -f "$BACKEND_LOG" "$ATLAS_LOG" "$FRONTEND_LOG"
+}
+
+main() {
+  local command="${1:-}"
+  case "$command" in
+    on) cmd_on ;;
+    off) cmd_off ;;
+    status) cmd_status ;;
+    logs) cmd_logs ;;
+    -h|--help|help|'') usage ;;
+    *) usage; die "Unknown command: $command" ;;
+  esac
+}
+
+main "$@"

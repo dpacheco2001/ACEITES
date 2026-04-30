@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { api } from '../api.js'
 import { MSIcon } from '../components/Layout.jsx'
+import LoadingProgress from '../components/LoadingProgress.jsx'
 import { temaSemaforo, fmtHorasAceite, relativeAgo } from '../semaforo_theme.js'
 
 export default function Flota() {
@@ -29,7 +30,12 @@ export default function Flota() {
   if (loading) {
     return (
       <section className="p-6 md:p-10">
-        <div className="bg-surface-container-low rounded-xl h-32 animate-pulse" />
+        <LoadingProgress
+          active={loading}
+          label="Calculando resumen de flota"
+          note="Atlas esperara estos resultados antes de explicar el dashboard."
+        />
+        <div className="mt-6 bg-surface-container-low rounded-xl h-32 animate-pulse" />
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-6">
           {[1,2,3,4].map(i => <div key={i} className="bg-surface-container-low rounded-xl h-32 animate-pulse" />)}
         </div>

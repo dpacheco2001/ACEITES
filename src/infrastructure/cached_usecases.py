@@ -1,13 +1,4 @@
-"""Decoradores de casos de uso con cache TTL.
-
-Respetan la misma interfaz pública (`.execute(...)`) para que el resto del
-código (routers, DI) no note la diferencia. La invalidación vive acá para
-mantener a los use-cases puros.
-
-Keys usados:
-  - ``flota_resumen``          → resultado de /flota/resumen
-  - ``prediccion:{equipo_id}`` → resultado de /equipos/{id}/prediccion
-"""
+"""Decoradores de casos de uso con cache TTL por tenant."""
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
@@ -20,8 +11,8 @@ from src.application import (
 )
 
 if TYPE_CHECKING:
-    from src.domain import Prediccion
     from src.application import ResumenFlota
+    from src.domain import Prediccion
     from src.infrastructure.cache import TTLCache
 
 
@@ -29,77 +20,73 @@ FLOTA_KEY = "flota_resumen"
 PREDICCION_PREFIX = "prediccion:"
 
 
+def _cache_namespace(tenant_key: str) -> str:
+    return f"t:{tenant_key}:"
+
+
 def _pred_key(equipo_id: str) -> str:
     return f"{PREDICCION_PREFIX}{equipo_id}"
 
 
-# ======================================================================
-# Predicción individual
-# ======================================================================
 class CachedPredecirEquipoUseCase:
-    """Cachea el resultado de la predicción por equipo."""
+    """Cachea la predicción por equipo dentro del tenant."""
 
     def __init__(
         self,
         inner: PredecirEquipoUseCase,
         cache: "TTLCache",
+        tenant_key: str,
     ) -> None:
         self._inner = inner
         self._cache = cache
+        self._pfx = _cache_namespace(tenant_key)
 
     def execute(self, equipo_id: str) -> "Prediccion":
+        key = f"{self._pfx}{_pred_key(equipo_id)}"
         return self._cache.get_or_compute(
-            _pred_key(equipo_id),
+            key,
             lambda: self._inner.execute(equipo_id),
         )
 
 
-# ======================================================================
-# Resumen de flota
-# ======================================================================
 class CachedObtenerResumenFlotaUseCase:
-    """Cachea /flota/resumen — el endpoint más caro (33 predicciones)."""
+    """Cachea /flota/resumen dentro del tenant."""
 
     def __init__(
         self,
         inner: ObtenerResumenFlotaUseCase,
         cache: "TTLCache",
+        tenant_key: str,
     ) -> None:
         self._inner = inner
         self._cache = cache
+        self._flota_key = f"{_cache_namespace(tenant_key)}{FLOTA_KEY}"
 
     def execute(self) -> "ResumenFlota":
-        return self._cache.get_or_compute(FLOTA_KEY, self._inner.execute)
+        return self._cache.get_or_compute(self._flota_key, self._inner.execute)
 
     def warm_up(self) -> None:
-        """Pre-computa el resumen y lo deja en cache. Se llama al arranque."""
-        self._cache.invalidate(FLOTA_KEY)  # forzar recompute fresco
+        self._cache.invalidate(self._flota_key)
         self.execute()
 
 
-# ======================================================================
-# Registrar muestra — invalida y repuebla
-# ======================================================================
 class CachedRegistrarMuestraUseCase:
-    """Al registrar una muestra nueva, el cache del equipo y el de la flota
-    quedan obsoletos. Los invalidamos sincrónicamente para que la siguiente
-    lectura vea datos consistentes.
-    """
+    """Invalida cache de equipo y flota para el tenant afectado."""
 
     def __init__(
         self,
         inner: RegistrarMuestraUseCase,
         cache: "TTLCache",
+        tenant_key: str,
     ) -> None:
         self._inner = inner
         self._cache = cache
+        self._pfx = _cache_namespace(tenant_key)
 
     def execute(self, equipo_id: str, nueva: NuevaMuestraDTO) -> "Prediccion":
         pred = self._inner.execute(equipo_id, nueva)
-        # Invalida el equipo afectado y la flota completa.
-        self._cache.invalidate(_pred_key(equipo_id))
-        self._cache.invalidate(FLOTA_KEY)
-        # Re-siembra la predicción del equipo (usa la respuesta que ya tenemos
-        # para no pagar el costo otra vez).
-        self._cache.set(_pred_key(equipo_id), pred)
+        pred_key = f"{self._pfx}{_pred_key(equipo_id)}"
+        self._cache.invalidate(pred_key)
+        self._cache.invalidate(f"{self._pfx}{FLOTA_KEY}")
+        self._cache.set(pred_key, pred)
         return pred
