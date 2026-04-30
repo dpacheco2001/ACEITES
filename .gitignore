@@ -1,3 +1,17 @@
-.venv   
-.vscode
-.cache
+﻿# Python
+__pycache__/
+*.pyc
+
+# Env (local secrets)
+.env
+
+# Data created at runtime
+/data/
+
+# Frontend build + deps
+/frontend/node_modules/
+/frontend/dist/
+/frontend/.pkg.hash
+/frontend/.env.local
+/frontend/.env.*.local
+/frontend/node_modules/.vite/

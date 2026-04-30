@@ -1,9 +1,4 @@
-"""Routers FastAPI — consolida health, flota, equipos, muestras, exportar.
-
-Un solo módulo para respetar la directiva "no crees carpetas que no sean
-necesarias" sin sacrificar la separación por responsabilidades (cada router
-es una función independiente con su propio prefix).
-"""
+"""Routers FastAPI — health público, auth, API protegida y admin."""
 from __future__ import annotations
 
 import io
@@ -11,7 +6,7 @@ from datetime import date
 from typing import Dict, Optional
 
 import pandas as pd
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import StreamingResponse
 
 from src.application import (
@@ -23,25 +18,33 @@ from src.application import (
     RegistrarMuestraUseCase,
 )
 from src.domain import EstadoEquipo, Prediccion
-from src.infrastructure.settings import (
-    LIMITES_ALERTA,
-    VAR_TO_SLUG,
-    VARIABLES_ANALITICAS,
-    VARIABLES_BAJA_CONFIANZA,
-)
+from src.infrastructure.auth_db import get_auth_db
+from src.infrastructure.google_id_token import verify_google_id_token
+from src.infrastructure.jwt_session import create_access_token
+from src.infrastructure.settings import GOOGLE_CLIENT_ID, LIMITES_ALERTA, VAR_TO_SLUG, VARIABLES_ANALITICAS, VARIABLES_BAJA_CONFIANZA
+from src.infrastructure.tenant_excel_registry import TenantExcelRegistry
 from src.interfaces.api import dependencies as deps
 from src.interfaces.api.schemas import (
+    AdminRolePatch,
+    AdminUserItem,
+    AdminUsersResponse,
+    AuthResponse,
     EquiposResponse,
     FlotaResumenResponse,
+    GoogleAuthRequest,
+    GoogleClientConfigResponse,
     HealthResponse,
     HistorialResponse,
     LimiteAlertaSchema,
+    MeResponse,
     MuestraHistorial,
     NuevaMuestraRequest,
     PrediccionResponse,
     ResumenEquipoSchema,
+    UserPublic,
     VariablesResponse,
 )
+from src.interfaces.api.user_context import UserContext
 
 
 # ======================================================================
@@ -63,20 +66,119 @@ def _prediccion_to_schema(p: Prediccion) -> PrediccionResponse:
     )
 
 
+def _user_public_from_row(u) -> UserPublic:
+    db = get_auth_db()
+    org = db.get_org_by_id(u.org_id)
+    tenant = org.tenant_key if org else ""
+    return UserPublic(
+        id=u.id,
+        email=u.email,
+        org_id=u.org_id,
+        tenant_key=tenant,
+        role=u.role,
+    )
+
+
 # ======================================================================
 # Routers
 # ======================================================================
 router = APIRouter()
 
+# Autenticación: cada endpoint depende de casos de uso que inyectan `require_auth`.
+protected = APIRouter()
 
-# ---------- Health --------------------------------------------------
+auth_router = APIRouter(prefix="/auth", tags=["auth"])
+
+admin_router = APIRouter(prefix="/admin", tags=["admin"])
+
+
+# ---------- Health (público) -----------------------------------------
 @router.get("/health", response_model=HealthResponse, tags=["health"])
 def health(loader=Depends(deps.get_modelo_loader)) -> HealthResponse:
     return HealthResponse(status="ok", modelos_cargados=loader.modelos_cargados())
 
 
+# ---------- Auth (público) -------------------------------------------
+@auth_router.get("/client-config", response_model=GoogleClientConfigResponse)
+def auth_client_config() -> GoogleClientConfigResponse:
+    """Expone el Client ID configurado en el servidor para que el login no requiera .env en Vite."""
+    return GoogleClientConfigResponse(google_client_id=GOOGLE_CLIENT_ID or "")
+
+
+@auth_router.post("/google", response_model=AuthResponse)
+def auth_google(body: GoogleAuthRequest) -> AuthResponse:
+    if not GOOGLE_CLIENT_ID:
+        raise HTTPException(
+            status_code=503,
+            detail="GOOGLE_CLIENT_ID no configurado en el servidor",
+        )
+    try:
+        info = verify_google_id_token(body.id_token)
+    except Exception as e:
+        raise HTTPException(status_code=401, detail=f"Token de Google inválido: {e}") from e
+
+    email_raw = info.get("email") or ""
+    if not isinstance(email_raw, str) or "@" not in email_raw:
+        raise HTTPException(status_code=400, detail="Google no devolvió email válido")
+    if not info.get("email_verified"):
+        raise HTTPException(status_code=400, detail="El correo de Google debe estar verificado")
+
+    tenant_key = email_raw.split("@", 1)[1].strip().lower()
+    google_sub = str(info["sub"])
+
+    db = get_auth_db()
+    existing = db.get_user_by_sub(google_sub)
+    if existing:
+        org = db.get_org_by_id(existing.org_id)
+        if org is None:
+            raise HTTPException(status_code=500, detail="Inconsistencia de organización")
+        TenantExcelRegistry.ensure_tenant_dataset(org.tenant_key)
+        TenantExcelRegistry.preload_tenant(org.tenant_key)
+
+        tok = create_access_token(
+            user_id=existing.id,
+            org_id=existing.org_id,
+            tenant_key=org.tenant_key,
+            email=existing.email,
+            role=existing.role,
+            google_sub=existing.google_sub,
+        )
+        return AuthResponse(access_token=tok, user=_user_public_from_row(existing))
+
+    org = db.get_org_by_tenant(tenant_key)
+    if org is None:
+        org = db.create_org(tenant_key)
+
+    n_before = db.count_users_in_org(org.id)
+    role = "ADMIN" if n_before == 0 else "CLIENTE"
+
+    created = db.create_user(google_sub=google_sub, email=email_raw, org_id=org.id, role=role)
+    TenantExcelRegistry.ensure_tenant_dataset(org.tenant_key)
+    TenantExcelRegistry.preload_tenant(org.tenant_key)
+
+    tok = create_access_token(
+        user_id=created.id,
+        org_id=created.org_id,
+        tenant_key=org.tenant_key,
+        email=created.email,
+        role=created.role,
+        google_sub=created.google_sub,
+    )
+    return AuthResponse(access_token=tok, user=_user_public_from_row(created))
+
+
+# ---------- Sesión ---------------------------------------------------
+@protected.get("/me", response_model=MeResponse, tags=["auth"])
+def me(uc: UserContext = Depends(deps.require_auth)) -> MeResponse:
+    db = get_auth_db()
+    u = db.get_user_by_id(uc.user_id)
+    if u is None:
+        raise HTTPException(status_code=401, detail="Usuario no encontrado")
+    return MeResponse(user=_user_public_from_row(u))
+
+
 # ---------- Metadata ------------------------------------------------
-@router.get("/variables", response_model=VariablesResponse, tags=["metadata"])
+@protected.get("/variables", response_model=VariablesResponse, tags=["metadata"])
 def variables() -> VariablesResponse:
     limites = []
     for v in VARIABLES_ANALITICAS:
@@ -101,12 +203,12 @@ def variables() -> VariablesResponse:
 
 
 # ---------- Equipos -------------------------------------------------
-@router.get("/equipos", response_model=EquiposResponse, tags=["equipos"])
+@protected.get("/equipos", response_model=EquiposResponse, tags=["equipos"])
 def listar_equipos(uc: ListarEquiposUseCase = Depends(deps.get_listar_equipos_uc)):
     return EquiposResponse(equipos=uc.execute())
 
 
-@router.get(
+@protected.get(
     "/equipos/{equipo_id}/prediccion",
     response_model=PrediccionResponse,
     tags=["equipos"],
@@ -122,7 +224,7 @@ def prediccion_equipo(
     return _prediccion_to_schema(pred)
 
 
-@router.get(
+@protected.get(
     "/equipos/{equipo_id}/historial",
     response_model=HistorialResponse,
     tags=["equipos"],
@@ -147,7 +249,6 @@ def historial_equipo(
                 valores=valores,
             )
         )
-    # Ordenado: más reciente primero (por fecha, fallback a hora_producto)
     historial.sort(
         key=lambda h: (h.fecha or date.min, h.hora_producto),
         reverse=True,
@@ -160,10 +261,8 @@ def historial_equipo(
 
 
 # ---------- Flota ---------------------------------------------------
-@router.get("/flota/resumen", response_model=FlotaResumenResponse, tags=["flota"])
-def resumen_flota(
-    uc: ObtenerResumenFlotaUseCase = Depends(deps.get_resumen_flota_uc),
-):
+@protected.get("/flota/resumen", response_model=FlotaResumenResponse, tags=["flota"])
+def resumen_flota(uc: ObtenerResumenFlotaUseCase = Depends(deps.get_resumen_flota_uc)):
     r = uc.execute()
     return FlotaResumenResponse(
         total_equipos=r.total_equipos,
@@ -188,7 +287,7 @@ def resumen_flota(
 
 
 # ---------- Muestras ------------------------------------------------
-@router.post(
+@protected.post(
     "/equipos/{equipo_id}/muestras",
     response_model=PrediccionResponse,
     tags=["muestras"],
@@ -198,7 +297,6 @@ def registrar_muestra(
     body: NuevaMuestraRequest,
     uc: RegistrarMuestraUseCase = Depends(deps.get_registrar_muestra_uc),
 ):
-    # El request puede venir con nombres de variable reales o en slug.
     valores_normalizados: Dict[str, float] = {}
     slug_to_var = {v: k for k, v in VAR_TO_SLUG.items()}
     for k, v in body.valores.items():
@@ -278,7 +376,7 @@ def _filtrar_muestras_por_fecha(muestras, fecha_desde, fecha_hasta):
     return out
 
 
-@router.get("/equipos/{equipo_id}/exportar", tags=["equipos"])
+@protected.get("/equipos/{equipo_id}/exportar", tags=["equipos"])
 def exportar_historial(
     equipo_id: str,
     formato: str = Query("excel", pattern="^(excel|csv)$"),
@@ -305,14 +403,13 @@ def exportar_historial(
         rows.append(row)
     df = pd.DataFrame(rows)
 
-    # Sufijo con rango si aplica
     rango = ""
     if fecha_desde or fecha_hasta:
         rango = f"_{fecha_desde or 'inicio'}_a_{fecha_hasta or 'hoy'}"
     return _df_to_streaming(df, f"{equipo_id}_historial{rango}", formato)
 
 
-@router.get("/flota/exportar", tags=["flota"])
+@protected.get("/flota/exportar", tags=["flota"])
 def exportar_resumen_flota(
     formato: str = Query("excel", pattern="^(excel|csv)$"),
     uc: ObtenerResumenFlotaUseCase = Depends(deps.get_resumen_flota_uc),
@@ -335,3 +432,52 @@ def exportar_resumen_flota(
     df = pd.DataFrame(rows)
     hoy = date.today().isoformat()
     return _df_to_streaming(df, f"flota_resumen_{hoy}", formato)
+
+
+# ---------- Admin usuarios ------------------------------------------
+@admin_router.get("/users", response_model=AdminUsersResponse)
+def admin_list_users(uc: UserContext = Depends(deps.require_admin)):
+    db = get_auth_db()
+    rows = db.list_users_in_org(uc.org_id)
+    return AdminUsersResponse(
+        users=[
+            AdminUserItem(id=u.id, email=u.email, role=u.role, created_at=u.created_at)
+            for u in rows
+        ]
+    )
+
+
+@admin_router.patch("/users/{user_id}/role", response_model=AdminUserItem)
+def admin_patch_role(
+    user_id: int,
+    body: AdminRolePatch,
+    uc: UserContext = Depends(deps.require_admin),
+):
+    db = get_auth_db()
+    if user_id == uc.user_id and body.role != "ADMIN":
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            detail="No puedes quitarte tu propio rol de administrador",
+        )
+    target = db.get_user_by_id(user_id)
+    if target is None or target.org_id != uc.org_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Usuario no encontrado")
+
+    ok = db.update_user_role(user_id, uc.org_id, body.role)
+    if not ok:
+        raise HTTPException(status.HTTP_500, detail="No se pudo actualizar")
+    updated = db.get_user_by_id(user_id)
+    if updated is None:
+        raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Usuario no encontrado tras actualizar")
+    return AdminUserItem(
+        id=updated.id,
+        email=updated.email,
+        role=updated.role,
+        created_at=updated.created_at,
+    )
+
+
+# Re-export: une todo en `router` para main.py
+router.include_router(protected)
+router.include_router(auth_router)
+router.include_router(admin_router)

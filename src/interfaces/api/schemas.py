@@ -101,3 +101,49 @@ class VariablesResponse(BaseModel):
     variables: List[str]
     baja_confianza: List[str]
     limites: List[LimiteAlertaSchema]
+
+
+# ======================================================================
+# Autenticación / admin
+# ======================================================================
+class GoogleClientConfigResponse(BaseModel):
+    """Client ID OAuth web (público; se usa en el botón de Google en el navegador)."""
+
+    google_client_id: str = ""
+
+
+class GoogleAuthRequest(BaseModel):
+    id_token: str = Field(..., min_length=10)
+
+
+class UserPublic(BaseModel):
+    id: int
+    email: str
+    org_id: int
+    tenant_key: str
+    role: str
+
+
+class AuthResponse(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+    user: UserPublic
+
+
+class MeResponse(BaseModel):
+    user: UserPublic
+
+
+class AdminUserItem(BaseModel):
+    id: int
+    email: str
+    role: str
+    created_at: str
+
+
+class AdminUsersResponse(BaseModel):
+    users: List[AdminUserItem]
+
+
+class AdminRolePatch(BaseModel):
+    role: str = Field(pattern="^(ADMIN|CLIENTE)$")

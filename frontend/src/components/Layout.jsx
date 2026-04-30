@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
-import { Link, NavLink, useLocation } from 'react-router-dom'
+import { Link, NavLink, useLocation, Outlet, useNavigate } from 'react-router-dom'
 import { api } from '../api.js'
+import { useAuth } from '../auth/AuthContext.jsx'
 
 /**
  * Shell global: top-bar glass + sidebar desktop + tabs móvil.
@@ -71,10 +72,16 @@ function MobileNavLink({ to, label, end = false }) {
   )
 }
 
-export default function Layout({ children }) {
+export default function Layout() {
   const loc = useLocation()
+  const navigate = useNavigate()
+  const { profile, logout } = useAuth()
   const [health, setHealth] = useState(null)
   const [lastSync, setLastSync] = useState(new Date())
+
+  const initials = profile?.email
+    ? profile.email.slice(0, 2).toUpperCase()
+    : '?'
 
   // Refresca el health cada 30s para el pulso del topbar
   useEffect(() => {
@@ -118,6 +125,9 @@ export default function Layout({ children }) {
               </NavLink>
               <TopNavLink to="/nueva-muestra" label="Nueva Muestra" />
               <TopNavLink to="/reportes" label="Reportes" />
+              {profile?.role === 'ADMIN' && (
+                <TopNavLink to="/admin/usuarios" label="Usuarios" />
+              )}
             </nav>
           </div>
           <div className="flex items-center gap-3 shrink-0">
@@ -133,10 +143,25 @@ export default function Layout({ children }) {
               className="material-symbols-outlined text-on-background hover:opacity-70 transition-opacity"
               aria-label="Notificaciones"
             >notifications</button>
+            <div className="hidden sm:flex flex-col items-end text-right max-w-[180px]">
+              <span className="text-[11px] font-mono truncate text-on-background" title={profile?.email}>
+                {profile?.email || '—'}
+              </span>
+              <span className="text-[10px] uppercase tracking-wider text-on-surface-variant">
+                {profile?.role === 'ADMIN' ? 'Administrador' : 'Cliente'} · {profile?.tenant_key || ''}
+              </span>
+            </div>
+            <button
+              type="button"
+              className="text-xs font-bold uppercase tracking-wider px-2 py-1 rounded-lg border border-outline-variant/60 hover:bg-surface-container-highest transition-colors"
+              onClick={() => { logout(); navigate('/login', { replace: true }) }}
+            >
+              Salir
+            </button>
             <div
-              className="w-8 h-8 rounded-full bg-primary-container text-on-primary flex items-center justify-center font-bold text-xs font-mono"
-              title="Ingeniero de mantenimiento"
-            >AD</div>
+              className="w-8 h-8 rounded-full bg-primary-container text-on-primary flex items-center justify-center font-bold text-xs font-mono shrink-0"
+              title={profile?.email || 'Usuario'}
+            >{initials}</div>
           </div>
         </div>
       </header>
@@ -155,6 +180,9 @@ export default function Layout({ children }) {
         >Equipo</NavLink>
         <MobileNavLink to="/nueva-muestra" label="Muestra" />
         <MobileNavLink to="/reportes"      label="Reportes" />
+        {profile?.role === 'ADMIN' && (
+          <MobileNavLink to="/admin/usuarios" label="Admin" />
+        )}
       </nav>
 
       {/* =================== MAIN SHELL =================== */}
@@ -182,6 +210,9 @@ export default function Layout({ children }) {
             </NavLink>
             <SideNavLink to="/nueva-muestra" icon="add_chart"               label="Nueva Muestra" />
             <SideNavLink to="/reportes"      icon="analytics"               label="Reportes" />
+            {profile?.role === 'ADMIN' && (
+              <SideNavLink to="/admin/usuarios" icon="group" label="Usuarios" />
+            )}
           </nav>
 
           {/* Pill de estado del backend al pie */}
@@ -199,7 +230,7 @@ export default function Layout({ children }) {
 
         {/* ---- Contenido ---- */}
         <main className="flex-1 overflow-y-auto bg-surface min-w-0">
-          {children}
+          <Outlet />
         </main>
       </div>
     </div>

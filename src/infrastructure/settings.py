@@ -2,14 +2,35 @@
 
 Todo path es relativo a la raíz del proyecto (ACEITES_MINERIA/).
 """
+import os
 from pathlib import Path
 
 # ------------------------------------------------------------------
 # Rutas
 # ------------------------------------------------------------------
 ROOT_DIR = Path(__file__).resolve().parent.parent.parent   # ACEITES_MINERIA/
+
+try:
+    from dotenv import load_dotenv
+
+    load_dotenv(ROOT_DIR / ".env")
+except ImportError:
+    pass
 EXCEL_PATH = ROOT_DIR / "DATA FLOTA 794AC - MOTOR ORIGINAL QUELLAVECO_R4L 2024.xlsx"
+EXCEL_FILENAME = EXCEL_PATH.name
 EXCEL_SHEET = "794AC QUELLA"
+
+# Datos aislados por empresa (dominio de correo)
+TENANTS_ROOT = ROOT_DIR / "data" / "tenants"
+AUTH_DB_PATH = ROOT_DIR / "data" / "auth.sqlite3"
+
+# Google OAuth (GIS) + sesión JWT
+GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID", "").strip()
+# Tolerancia de reloj al verificar el ID token (evita "Token used too early" si el PC va unos s atrasado).
+GOOGLE_ID_TOKEN_CLOCK_SKEW_SECONDS = int(os.getenv("GOOGLE_ID_TOKEN_CLOCK_SKEW_SECONDS", "120"))
+JWT_SECRET = os.getenv("JWT_SECRET", "dev-insecure-change-me").strip()
+JWT_ALGORITHM = "HS256"
+JWT_EXPIRE_HOURS = int(os.getenv("JWT_EXPIRE_HOURS", "24"))
 
 MODELS_DIR = ROOT_DIR / "models"
 CLASIFICADOR_PATH = MODELS_DIR / "clasificador_estado_xgboost.pkl"

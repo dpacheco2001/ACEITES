@@ -27,6 +27,11 @@ ACEITES_MINERIA/
 
 ## Arranque
 
+**Variables de entorno (obligatorio para login Google)**
+
+- Raíz del proyecto: copia [`.env.example`](.env.example) a `.env` y define `GOOGLE_CLIENT_ID` y `JWT_SECRET`.
+- El login del frontend obtiene el Client ID desde `GET /auth/client-config` (mismo valor que `GOOGLE_CLIENT_ID` en el backend), así que **no es obligatorio** `frontend/.env.local`. Opcional: `VITE_GOOGLE_CLIENT_ID` si quieres fijarlo en build sin depender del backend.
+
 **Backend** (una vez):
 ```powershell
 pip install -r requirements.txt
@@ -39,13 +44,19 @@ python run_api.py
 cd frontend
 npm install
 npm run dev
-# abre http://localhost:5173
+# abre http://localhost:5173  → primero muestra Login con Google
 ```
+
+Los datos Excel por empresa se crean como copia del XLS maestro bajo `data/tenants/<dominio>/`. Los usuarios y roles viven en `data/auth.sqlite3`.
 
 ## Endpoints REST
 
 | Método | Ruta                              | Qué hace                                         |
 |--------|-----------------------------------|--------------------------------------------------|
+| POST   | `/auth/google`                    | Login con Google ID token → JWT + perfil (`Bearer`) |
+| GET    | `/me`                             | perfil usuario + org (requiere Bearer) |
+| GET    | `/admin/users`                    | lista usuarios de la organización (ADMIN) |
+| PATCH  | `/admin/users/{id}/role`          | cambiar rol ADMIN/CLIENTE (ADMIN) |
 | GET    | `/health`                         | ping + flag de modelos cargados                  |
 | GET    | `/variables`                      | las 12 variables, baja-confianza, límites alerta |
 | GET    | `/equipos`                        | lista de IDs (33 camiones)                       |
