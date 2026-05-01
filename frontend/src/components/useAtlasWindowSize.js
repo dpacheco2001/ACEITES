@@ -99,10 +99,15 @@ export function useAtlasWindowSize() {
     setSize((current) => sizeFromWidth(current.width + direction * STEP))
   }, [])
 
+  const resetSize = useCallback(() => {
+    setSize(sizeFromWidth(DEFAULT_WIDTH))
+  }, [])
+
   return {
     size,
     resizing,
     resizeBy,
+    resetSize,
     resizeHandleProps: {
       onPointerDown: startResize,
       onPointerMove: moveResize,

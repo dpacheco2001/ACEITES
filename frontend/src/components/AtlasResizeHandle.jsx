@@ -1,5 +1,3 @@
-import { Maximize2 } from 'lucide-react'
-
 export default function AtlasResizeHandle({ resizeBy, resizeHandleProps }) {
   function handleKeyDown(event) {
     if (['ArrowUp', 'ArrowLeft', '+', '='].includes(event.key)) {
@@ -17,11 +15,12 @@ export default function AtlasResizeHandle({ resizeBy, resizeHandleProps }) {
       type="button"
       {...resizeHandleProps}
       onKeyDown={handleKeyDown}
-      className="absolute -left-3 -top-3 z-10 flex h-9 w-9 touch-none cursor-nwse-resize items-center justify-center rounded-lg border border-outline-variant/70 bg-surface-container-lowest text-on-surface shadow-lg hover:bg-surface-container-high focus:outline focus:outline-2 focus:outline-primary-container/30"
+      className="absolute bottom-2 left-2 z-10 h-5 w-5 touch-none cursor-nesw-resize rounded-sm opacity-40 transition-opacity hover:opacity-100 focus:opacity-100 focus:outline focus:outline-2 focus:outline-primary-container/30"
       aria-label="Redimensionar Atlas"
       title="Redimensionar Atlas"
     >
-      <Maximize2 size={16} />
+      <span className="absolute bottom-1 left-1 h-2.5 w-2.5 border-b-2 border-l-2 border-outline" />
+      <span className="absolute bottom-1 left-1 h-4 w-4 border-b-2 border-l-2 border-outline" />
     </button>
   )
 }

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useChat } from '@ai-sdk/react'
 import { DefaultChatTransport } from 'ai'
-import { Compass, History, Plus, Send, StopCircle, Trash2, X } from 'lucide-react'
+import { Compass, History, Maximize2, Plus, RotateCcw, Send, StopCircle, Trash2, X } from 'lucide-react'
 import AtlasMessage from './AtlasMessage.jsx'
 import AtlasResizeHandle from './AtlasResizeHandle.jsx'
 import LoadingProgress from './LoadingProgress.jsx'
@@ -23,7 +23,7 @@ export default function AtlasLauncher() {
   const [input, setInput] = useState('')
   const endRef = useRef(null)
   const skipPersistRef = useRef(false)
-  const { size, resizing, resizeBy, resizeHandleProps } = useAtlasWindowSize()
+  const { size, resizing, resizeBy, resetSize, resizeHandleProps } = useAtlasWindowSize()
   const transport = useMemo(
     () =>
       new DefaultChatTransport({
@@ -119,6 +119,24 @@ export default function AtlasLauncher() {
               </p>
             </div>
             <div className="flex items-center gap-1">
+              <button
+                type="button"
+                onClick={() => resizeBy(3)}
+                className="w-8 h-8 rounded-lg hover:bg-surface-container-high flex items-center justify-center"
+                aria-label="Agrandar Atlas"
+                title="Agrandar Atlas"
+              >
+                <Maximize2 size={18} />
+              </button>
+              <button
+                type="button"
+                onClick={resetSize}
+                className="w-8 h-8 rounded-lg hover:bg-surface-container-high flex items-center justify-center"
+                aria-label="Restaurar tamaño de Atlas"
+                title="Restaurar tamaño"
+              >
+                <RotateCcw size={17} />
+              </button>
               <button
                 type="button"
                 onClick={() => setShowSessions((value) => !value)}
