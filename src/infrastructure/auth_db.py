@@ -173,7 +173,10 @@ class AuthDB:
         )
 
     async def count_users_in_org(self, org_id: int) -> int:
-        row = await self._fetchrow("SELECT COUNT(*) AS c FROM users WHERE org_id = $1", org_id)
+        row = await self._fetchrow(
+            "SELECT COUNT(DISTINCT email) AS c FROM users WHERE org_id = $1",
+            org_id,
+        )
         return int(row["c"] if row is not None else 0)
 
     async def get_user_by_sub(self, google_sub: str) -> Optional[UserRow]:
