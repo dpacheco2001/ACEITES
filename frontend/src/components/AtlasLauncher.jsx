@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useChat } from '@ai-sdk/react'
 import { DefaultChatTransport } from 'ai'
-import { Compass, History, Maximize2, Plus, RotateCcw, Send, StopCircle, Trash2, X } from 'lucide-react'
+import { Compass, History, Plus, Send, StopCircle, Trash2, X } from 'lucide-react'
 import AtlasMessage from './AtlasMessage.jsx'
 import AtlasResizeHandle from './AtlasResizeHandle.jsx'
 import LoadingProgress from './LoadingProgress.jsx'
@@ -23,7 +23,7 @@ export default function AtlasLauncher() {
   const [input, setInput] = useState('')
   const endRef = useRef(null)
   const skipPersistRef = useRef(false)
-  const { size, resizing, resizeBy, resetSize, resizeHandleProps } = useAtlasWindowSize()
+  const { size, resizing, resizeBy, resizeHandleProps } = useAtlasWindowSize()
   const transport = useMemo(
     () =>
       new DefaultChatTransport({
@@ -104,14 +104,15 @@ export default function AtlasLauncher() {
   return (
     <div className="fixed bottom-5 right-5 z-[80] flex flex-col items-end gap-3">
       {open && (
-        <section
-          style={{ width: size.width, height: size.height }}
-          className={`relative flex flex-col overflow-hidden rounded-xl border border-outline-variant/70 bg-surface-container-lowest shadow-[0_24px_80px_rgba(15,23,42,0.22)] ${
-            resizing ? 'select-none' : 'transition-[width,height] duration-150 ease-out'
-          }`}
-        >
+        <div className="relative">
           <AtlasResizeHandle resizeBy={resizeBy} resizeHandleProps={resizeHandleProps} />
-          <header className="px-4 py-3 border-b border-outline-variant/60 bg-surface-container-low flex items-center justify-between gap-3">
+          <section
+            style={{ width: size.width, height: size.height }}
+            className={`flex flex-col overflow-hidden rounded-xl border border-outline-variant/70 bg-surface-container-lowest shadow-[0_24px_80px_rgba(15,23,42,0.22)] ${
+              resizing ? 'select-none' : 'transition-[width,height] duration-150 ease-out'
+            }`}
+          >
+            <header className="px-4 py-3 border-b border-outline-variant/60 bg-surface-container-low flex items-center justify-between gap-3">
             <div className="min-w-0">
               <h2 className="font-headline text-sm font-semibold text-on-surface">Atlas</h2>
               <p className="text-[11px] font-mono text-on-surface-variant truncate">
@@ -119,24 +120,6 @@ export default function AtlasLauncher() {
               </p>
             </div>
             <div className="flex items-center gap-1">
-              <button
-                type="button"
-                onClick={() => resizeBy(3)}
-                className="w-8 h-8 rounded-lg hover:bg-surface-container-high flex items-center justify-center"
-                aria-label="Agrandar Atlas"
-                title="Agrandar Atlas"
-              >
-                <Maximize2 size={18} />
-              </button>
-              <button
-                type="button"
-                onClick={resetSize}
-                className="w-8 h-8 rounded-lg hover:bg-surface-container-high flex items-center justify-center"
-                aria-label="Restaurar tamaño de Atlas"
-                title="Restaurar tamaño"
-              >
-                <RotateCcw size={17} />
-              </button>
               <button
                 type="button"
                 onClick={() => setShowSessions((value) => !value)}
@@ -276,7 +259,8 @@ export default function AtlasLauncher() {
               </button>
             </div>
           </form>
-        </section>
+          </section>
+        </div>
       )}
 
       <button
