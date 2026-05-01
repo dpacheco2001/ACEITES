@@ -51,10 +51,17 @@ export default function AdminDatos() {
 
   async function importDataset() {
     if (!file) return
+    const replacing = Boolean(status?.loaded)
+    if (replacing) {
+      const ok = window.confirm(
+        'Esta organización ya tiene dataset cargado. Importar este archivo reemplazará toda la data actual, invalidará caches y recalculará resultados. ¿Confirmas el reemplazo?',
+      )
+      if (!ok) return
+    }
     setBusy(true)
     setErr(null)
     try {
-      setStatus(await api.datasetImport(file))
+      setStatus(await api.datasetImport(file, { confirmReplace: replacing }))
       setPreview(await api.datasetPreview())
       setValidation(null)
     } catch (e) {
@@ -104,6 +111,11 @@ export default function AdminDatos() {
           )}
 
           <div className="rounded-lg border border-outline-variant/50 bg-surface-container-low p-5 space-y-4">
+            {status?.loaded && (
+              <div className="rounded-lg border border-warning/40 bg-warning-container/50 px-3 py-2 text-sm">
+                Esta organización ya tiene dataset activo. Una nueva importación reemplazará toda la data cargada.
+              </div>
+            )}
             <label className="block">
               <span className="block text-xs uppercase tracking-widest text-on-surface-variant mb-2">
                 Archivo Excel o CSV

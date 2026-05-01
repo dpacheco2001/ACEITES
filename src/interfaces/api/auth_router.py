@@ -1,8 +1,6 @@
 """Rutas de autenticación y sesión."""
 from __future__ import annotations
 
-import hashlib
-
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 
 from src.infrastructure.auth_db import UserRow, get_auth_db
@@ -30,11 +28,6 @@ from src.interfaces.api.schemas import (
 from src.interfaces.api.user_context import UserContext
 
 router = APIRouter(tags=["auth"])
-
-
-def _tenant_for_user(google_sub: str) -> str:
-    digest = hashlib.sha256(google_sub.encode("utf-8")).hexdigest()[:16]
-    return f"user-{digest}"
 
 
 async def _user_public_from_row(user: UserRow) -> UserPublic:
@@ -146,7 +139,6 @@ async def auth_google(body: GoogleAuthRequest, response: Response) -> AuthRespon
 
     email = email_raw.lower().strip()
     google_sub = str(info["sub"])
-    tenant_key = _tenant_for_user(google_sub)
 
     db = get_auth_db()
     memberships = get_membership_db()
@@ -192,20 +184,13 @@ async def auth_google(body: GoogleAuthRequest, response: Response) -> AuthRespon
             TenantExcelRegistry.preload_tenant(org.tenant_key)
         return await _build_session_response(response, existing)
 
-    org = await db.get_org_by_tenant(tenant_key)
-    if org is None:
-        org = await db.create_org(tenant_key)
-
-    role = "ADMIN" if await db.count_users_in_org(org.id) == 0 else "CLIENTE"
-    created = await db.create_user(
-        google_sub=google_sub,
-        email=email,
-        org_id=org.id,
-        role=role,
+    raise HTTPException(
+        status.HTTP_403_FORBIDDEN,
+        detail=(
+            "Tu correo no tiene acceso a ninguna organización. "
+            "Pide al owner o admin que te agregue."
+        ),
     )
-    if TenantExcelRegistry.has_tenant_dataset(org.tenant_key):
-        TenantExcelRegistry.preload_tenant(org.tenant_key)
-    return await _build_session_response(response, created)
 
 
 @router.post("/auth/logout", response_model=LogoutResponse)

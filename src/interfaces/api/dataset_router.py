@@ -144,9 +144,18 @@ async def validate_upload(
 
 @router.post("/import", response_model=DatasetStatusResponse)
 async def import_upload(
+    confirm_replace: bool = Query(default=False),
     file: UploadFile = File(...),
     uc: UserContext = Depends(deps.require_admin),
 ) -> DatasetStatusResponse:
+    if TenantExcelRegistry.has_tenant_dataset(uc.tenant_key) and not confirm_replace:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            detail=(
+                "Esta organización ya tiene dataset cargado. Confirma el reemplazo "
+                "para sobrescribir toda la data actual."
+            ),
+        )
     path = await _upload_to_temp(file)
     normalized_path = Path(tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx").name)
     try:

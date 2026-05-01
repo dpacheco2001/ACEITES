@@ -84,10 +84,11 @@ export const api = {
     body.append('file', file)
     return request('/org/dataset/validate', { method: 'POST', body })
   },
-  datasetImport: (file) => {
+  datasetImport: (file, { confirmReplace = false } = {}) => {
     const body = new FormData()
     body.append('file', file)
-    return request('/org/dataset/import', { method: 'POST', body })
+    const params = confirmReplace ? '?confirm_replace=true' : ''
+    return request(`/org/dataset/import${params}`, { method: 'POST', body })
   },
 
   exportar: (id, formato, fechaDesde = '', fechaHasta = '') => {

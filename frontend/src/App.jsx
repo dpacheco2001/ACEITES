@@ -2,6 +2,7 @@ import { lazy, Suspense } from 'react'
 import { Navigate, Route, Routes } from 'react-router-dom'
 import ProtectedRoute from './auth/ProtectedRoute.jsx'
 import Layout from './components/Layout.jsx'
+import RouteErrorBoundary from './components/RouteErrorBoundary.jsx'
 
 const Flota = lazy(() => import('./pages/Flota.jsx'))
 const Equipo = lazy(() => import('./pages/Equipo.jsx'))
@@ -19,24 +20,26 @@ function RouteFallback() {
 
 export default function App() {
   return (
-    <Suspense fallback={<RouteFallback />}>
-      <Routes>
-        <Route path="/login" element={<Login />} />
-        <Route element={<ProtectedRoute />}>
-          <Route element={<Layout />}>
-            <Route path="/" element={<Flota />} />
-            <Route path="/equipo" element={<Equipos />} />
-            <Route path="/equipo/:id" element={<Equipo />} />
-            <Route path="/nueva-muestra" element={<NuevaMuestra />} />
-            <Route path="/nueva-muestra/:id" element={<NuevaMuestra />} />
-            <Route path="/reportes" element={<Reportes />} />
-            <Route path="/admin/datos" element={<AdminDatos />} />
-            <Route path="/admin/usuarios" element={<AdminUsuarios />} />
-            <Route path="/owner/organizaciones" element={<OwnerOrganizaciones />} />
+    <RouteErrorBoundary>
+      <Suspense fallback={<RouteFallback />}>
+        <Routes>
+          <Route path="/login" element={<Login />} />
+          <Route element={<ProtectedRoute />}>
+            <Route element={<Layout />}>
+              <Route path="/" element={<Flota />} />
+              <Route path="/equipo" element={<Equipos />} />
+              <Route path="/equipo/:id" element={<Equipo />} />
+              <Route path="/nueva-muestra" element={<NuevaMuestra />} />
+              <Route path="/nueva-muestra/:id" element={<NuevaMuestra />} />
+              <Route path="/reportes" element={<Reportes />} />
+              <Route path="/admin/datos" element={<AdminDatos />} />
+              <Route path="/admin/usuarios" element={<AdminUsuarios />} />
+              <Route path="/owner/organizaciones" element={<OwnerOrganizaciones />} />
+            </Route>
           </Route>
-        </Route>
-        <Route path="*" element={<Navigate to="/" replace />} />
-      </Routes>
-    </Suspense>
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Routes>
+      </Suspense>
+    </RouteErrorBoundary>
   )
 }

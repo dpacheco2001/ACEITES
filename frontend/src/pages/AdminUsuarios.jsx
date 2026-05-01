@@ -78,6 +78,9 @@ export default function AdminUsuarios() {
       .filter((item) => item.user_id === profile?.id || item.email === profile?.email)
       .map((item) => item.id)
   )
+  const pendingMemberships = memberships.filter((item) => (
+    item.status !== 'ACTIVE' || !item.user_id
+  ))
 
   if (profile?.role !== 'ADMIN') {
     return (
@@ -181,18 +184,18 @@ export default function AdminUsuarios() {
         </div>
       )}
 
-      {!loading && (
+      {!loading && pendingMemberships.length > 0 && (
         <div className="overflow-x-auto rounded-lg border border-outline-variant/50 bg-surface-container-low">
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-outline-variant/40 text-left text-on-surface-variant uppercase text-[10px] tracking-widest">
-                <th className="p-3">Membresía</th>
+                <th className="p-3">Invitación pendiente</th>
                 <th className="p-3">Estado</th>
                 <th className="p-3">Rol</th>
               </tr>
             </thead>
             <tbody>
-              {memberships.map((item) => (
+              {pendingMemberships.map((item) => (
                 <tr key={item.id} className="border-b border-outline-variant/20">
                   <td className="p-3 font-mono text-xs">{item.email}</td>
                   <td className="p-3">
