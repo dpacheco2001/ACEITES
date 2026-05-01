@@ -2,14 +2,53 @@
 
 Todo path es relativo a la raíz del proyecto (ACEITES_MINERIA/).
 """
+import os
 from pathlib import Path
 
 # ------------------------------------------------------------------
 # Rutas
 # ------------------------------------------------------------------
 ROOT_DIR = Path(__file__).resolve().parent.parent.parent   # ACEITES_MINERIA/
+
+try:
+    from dotenv import load_dotenv
+
+    load_dotenv(ROOT_DIR / ".env")
+except ImportError:
+    pass
+
 EXCEL_PATH = ROOT_DIR / "DATA FLOTA 794AC - MOTOR ORIGINAL QUELLAVECO_R4L 2024.xlsx"
+EXCEL_FILENAME = EXCEL_PATH.name
 EXCEL_SHEET = "794AC QUELLA"
+
+TENANTS_ROOT = ROOT_DIR / "data" / "tenants"
+DATABASE_URL = os.getenv("DATABASE_URL", "").strip()
+
+GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID", "").strip()
+GOOGLE_ID_TOKEN_CLOCK_SKEW_SECONDS = int(
+    os.getenv("GOOGLE_ID_TOKEN_CLOCK_SKEW_SECONDS", "120")
+)
+JWT_SECRET = os.getenv("JWT_SECRET", "").strip()
+JWT_ALGORITHM = "HS256"
+ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "60"))
+ACCESS_TOKEN_EXPIRE_SECONDS = ACCESS_TOKEN_EXPIRE_MINUTES * 60
+OWNER_EMAILS = {
+    e.strip().lower()
+    for e in os.getenv("OWNER_EMAILS", "").split(",")
+    if e.strip()
+}
+
+SESSION_COOKIE_NAME = os.getenv("SESSION_COOKIE_NAME", "oilmine_session").strip()
+SESSION_COOKIE_NAME = SESSION_COOKIE_NAME or "oilmine_session"
+SESSION_COOKIE_SAMESITE = os.getenv("SESSION_COOKIE_SAMESITE", "lax").strip().lower()
+if SESSION_COOKIE_SAMESITE not in {"lax", "strict", "none"}:
+    SESSION_COOKIE_SAMESITE = "lax"
+SESSION_COOKIE_SECURE = os.getenv("SESSION_COOKIE_SECURE", "false").strip().lower() in {
+    "1",
+    "true",
+    "yes",
+    "on",
+}
 
 MODELS_DIR = ROOT_DIR / "models"
 CLASIFICADOR_PATH = MODELS_DIR / "clasificador_estado_xgboost.pkl"

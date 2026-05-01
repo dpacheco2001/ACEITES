@@ -11,6 +11,11 @@ export default defineConfig({
         changeOrigin: true,
         rewrite: (p) => p.replace(/^\/api/, ''),
       },
+      '/atlas-api': {
+        target: 'http://localhost:8787',
+        changeOrigin: true,
+        rewrite: (p) => p.replace(/^\/atlas-api/, ''),
+      },
     },
   },
 })

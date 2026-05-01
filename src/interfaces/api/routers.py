@@ -42,6 +42,7 @@ from src.interfaces.api.schemas import (
     ResumenEquipoSchema,
     VariablesResponse,
 )
+from src.interfaces.api.user_context import UserContext
 
 
 # ======================================================================
@@ -77,7 +78,7 @@ def health(loader=Depends(deps.get_modelo_loader)) -> HealthResponse:
 
 # ---------- Metadata ------------------------------------------------
 @router.get("/variables", response_model=VariablesResponse, tags=["metadata"])
-def variables() -> VariablesResponse:
+def variables(_: UserContext = Depends(deps.require_auth)) -> VariablesResponse:
     limites = []
     for v in VARIABLES_ANALITICAS:
         cfg = LIMITES_ALERTA.get(v, {})
