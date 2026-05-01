@@ -1,13 +1,12 @@
-"""Persistencia Postgres de membresías de organizaciones."""
+"""Persistencia asyncpg de membresías de organizaciones."""
 from __future__ import annotations
 
-import threading
+import asyncio
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Any, Optional
+from typing import Optional
 
-from psycopg.rows import dict_row
-import psycopg
+import asyncpg
 
 from src.infrastructure.settings import DATABASE_URL
 
@@ -29,68 +28,87 @@ def _utc_now_iso() -> str:
 
 
 class MembershipDB:
-    _lock = threading.Lock()
-
     def __init__(self, database_url: str = DATABASE_URL) -> None:
         self.database_url = database_url.strip()
         if not self.database_url:
             raise RuntimeError("DATABASE_URL es obligatorio para la persistencia SQL.")
-        self._init_schema()
+        self._pool: Optional[asyncpg.Pool] = None
+        self._init_lock = asyncio.Lock()
 
-    def _connect(self):
-        return psycopg.connect(self.database_url, row_factory=dict_row)
+    async def init(self) -> None:
+        async with self._init_lock:
+            if self._pool is not None:
+                return
+            self._pool = await asyncpg.create_pool(
+                self.database_url,
+                min_size=1,
+                max_size=10,
+                command_timeout=30,
+            )
+            async with self._pool.acquire() as conn:
+                await self._init_schema(conn)
 
-    def _init_schema(self) -> None:
-        with self._lock, self._connect() as conn:
-            conn.execute(
-                """
-                CREATE TABLE IF NOT EXISTS organization_memberships (
-                    id BIGSERIAL PRIMARY KEY,
-                    org_id BIGINT NOT NULL REFERENCES organizations(id),
-                    email TEXT NOT NULL,
-                    role TEXT NOT NULL CHECK(role IN ('ADMIN','CLIENTE')),
-                    status TEXT NOT NULL CHECK(status IN ('PENDING','ACTIVE')),
-                    user_id BIGINT REFERENCES users(id),
-                    created_at TEXT NOT NULL,
-                    accepted_at TEXT,
-                    UNIQUE(org_id, email)
-                )
-                """
-            )
-            conn.execute(
-                "CREATE INDEX IF NOT EXISTS idx_memberships_email ON organization_memberships(email)"
-            )
-            conn.execute(
-                "CREATE INDEX IF NOT EXISTS idx_memberships_org ON organization_memberships(org_id)"
-            )
+    async def close(self) -> None:
+        if self._pool is not None:
+            await self._pool.close()
+            self._pool = None
 
-    def get_by_email(self, email: str) -> Optional[MembershipRow]:
-        row = self._fetchone(
+    async def _ready_pool(self) -> asyncpg.Pool:
+        if self._pool is None:
+            await self.init()
+        if self._pool is None:
+            raise RuntimeError("Pool SQL no inicializado")
+        return self._pool
+
+    async def _init_schema(self, conn) -> None:
+        await conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS organization_memberships (
+                id BIGSERIAL PRIMARY KEY,
+                org_id BIGINT NOT NULL REFERENCES organizations(id),
+                email TEXT NOT NULL,
+                role TEXT NOT NULL CHECK(role IN ('ADMIN','CLIENTE')),
+                status TEXT NOT NULL CHECK(status IN ('PENDING','ACTIVE')),
+                user_id BIGINT REFERENCES users(id),
+                created_at TEXT NOT NULL,
+                accepted_at TEXT,
+                UNIQUE(org_id, email)
+            )
+            """
+        )
+        await conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_memberships_email ON organization_memberships(email)"
+        )
+        await conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_memberships_org ON organization_memberships(org_id)"
+        )
+
+    async def get_by_email(self, email: str) -> Optional[MembershipRow]:
+        row = await self._fetchrow(
             """
             SELECT id, org_id, email, role, status, user_id, created_at, accepted_at
             FROM organization_memberships
-            WHERE email = %s
+            WHERE email = $1
             ORDER BY status = 'ACTIVE' DESC, id DESC
             LIMIT 1
             """,
-            (email.lower().strip(),),
+            email.lower().strip(),
         )
         return self._from_row(row)
 
-    def list_by_org(self, org_id: int) -> list[MembershipRow]:
-        with self._lock, self._connect() as conn:
-            rows = conn.execute(
-                """
-                SELECT id, org_id, email, role, status, user_id, created_at, accepted_at
-                FROM organization_memberships
-                WHERE org_id = %s
-                ORDER BY status, email
-                """,
-                (org_id,),
-            ).fetchall()
+    async def list_by_org(self, org_id: int) -> list[MembershipRow]:
+        rows = await self._fetch(
+            """
+            SELECT id, org_id, email, role, status, user_id, created_at, accepted_at
+            FROM organization_memberships
+            WHERE org_id = $1
+            ORDER BY status, email
+            """,
+            org_id,
+        )
         return [m for m in (self._from_row(row) for row in rows) if m]
 
-    def upsert(
+    async def upsert(
         self,
         org_id: int,
         email: str,
@@ -100,11 +118,11 @@ class MembershipDB:
     ) -> MembershipRow:
         now = _utc_now_iso()
         accepted = now if status == "ACTIVE" else None
-        row = self._write_returning(
+        row = await self._fetchrow(
             """
             INSERT INTO organization_memberships
                 (org_id, email, role, status, user_id, created_at, accepted_at)
-            VALUES (%s, %s, %s, %s, %s, %s, %s)
+            VALUES ($1, $2, $3, $4, $5, $6, $7)
             ON CONFLICT(org_id, email) DO UPDATE SET
                 role = excluded.role,
                 status = excluded.status,
@@ -112,41 +130,54 @@ class MembershipDB:
                 accepted_at = COALESCE(excluded.accepted_at, organization_memberships.accepted_at)
             RETURNING id, org_id, email, role, status, user_id, created_at, accepted_at
             """,
-            (org_id, email.lower().strip(), role, status, user_id, now, accepted),
+            org_id,
+            email.lower().strip(),
+            role,
+            status,
+            user_id,
+            now,
+            accepted,
         )
         membership = self._from_row(row)
         if membership is None:
             raise RuntimeError("membership upsert failed")
         return membership
 
-    def accept(self, membership_id: int, user_id: int) -> bool:
-        return self._execute_bool(
+    async def accept(self, membership_id: int, user_id: int) -> bool:
+        return await self._execute_bool(
             """
             UPDATE organization_memberships
-            SET user_id = %s, status = 'ACTIVE', accepted_at = %s
-            WHERE id = %s
+            SET user_id = $1, status = 'ACTIVE', accepted_at = $2
+            WHERE id = $3
             """,
-            (user_id, _utc_now_iso(), membership_id),
+            user_id,
+            _utc_now_iso(),
+            membership_id,
         )
 
-    def update_role(self, membership_id: int, org_id: int, role: str) -> bool:
-        return self._execute_bool(
-            "UPDATE organization_memberships SET role = %s WHERE id = %s AND org_id = %s",
-            (role, membership_id, org_id),
+    async def update_role(self, membership_id: int, org_id: int, role: str) -> bool:
+        return await self._execute_bool(
+            "UPDATE organization_memberships SET role = $1 WHERE id = $2 AND org_id = $3",
+            role,
+            membership_id,
+            org_id,
         )
 
-    def _fetchone(self, sql: str, params: tuple[Any, ...]):
-        with self._lock, self._connect() as conn:
-            return conn.execute(sql, params).fetchone()
+    async def _fetchrow(self, sql: str, *args):
+        pool = await self._ready_pool()
+        async with pool.acquire() as conn:
+            return await conn.fetchrow(sql, *args)
 
-    def _write_returning(self, sql: str, params: tuple[Any, ...]):
-        with self._lock, self._connect() as conn:
-            return conn.execute(sql, params).fetchone()
+    async def _fetch(self, sql: str, *args):
+        pool = await self._ready_pool()
+        async with pool.acquire() as conn:
+            return await conn.fetch(sql, *args)
 
-    def _execute_bool(self, sql: str, params: tuple[Any, ...]) -> bool:
-        with self._lock, self._connect() as conn:
-            cur = conn.execute(sql, params)
-            return cur.rowcount > 0
+    async def _execute_bool(self, sql: str, *args) -> bool:
+        pool = await self._ready_pool()
+        async with pool.acquire() as conn:
+            result = await conn.execute(sql, *args)
+        return not result.endswith(" 0")
 
     @staticmethod
     def _from_row(row) -> Optional[MembershipRow]:

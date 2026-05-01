@@ -65,5 +65,5 @@ auditoria-final DELETED
 ## Notas
 
 - La persistencia SQL usa Postgres mediante `DATABASE_URL`; si falta esa variable el backend falla de forma explicita.
-- Las consultas SQL son sincronas. Para el volumen actual de auth, owner y membresias no bloquea produccion porque son operaciones cortas y los endpoints sync de FastAPI corren fuera del event loop principal. Si el sistema empieza a recibir alta concurrencia de escritura, el siguiente paso razonable seria un pool async.
+- Las consultas de usuarios, owners y membresias usan `asyncpg` con pool async inicializado en el lifespan de FastAPI.
 - El frontend divide chunks por proveedor para evitar bundles monoliticos en Vite.

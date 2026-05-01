@@ -1,13 +1,12 @@
-"""Persistencia Postgres para organizaciones, usuarios y owners."""
+"""Persistencia asyncpg para organizaciones, usuarios y owners."""
 from __future__ import annotations
 
-import threading
+import asyncio
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Any, Optional
+from typing import Optional
 
-from psycopg.rows import dict_row
-import psycopg
+import asyncpg
 
 from src.infrastructure.settings import DATABASE_URL, OWNER_EMAILS
 
@@ -36,202 +35,236 @@ def _utc_now_iso() -> str:
 
 
 class AuthDB:
-    _lock = threading.Lock()
-
     def __init__(self, database_url: str = DATABASE_URL) -> None:
         self.database_url = database_url.strip()
         if not self.database_url:
             raise RuntimeError("DATABASE_URL es obligatorio para la persistencia SQL.")
-        self._init_schema()
+        self._pool: Optional[asyncpg.Pool] = None
+        self._init_lock = asyncio.Lock()
 
-    def _connect(self):
-        return psycopg.connect(self.database_url, row_factory=dict_row)
+    async def init(self) -> None:
+        async with self._init_lock:
+            if self._pool is not None:
+                return
+            self._pool = await asyncpg.create_pool(
+                self.database_url,
+                min_size=1,
+                max_size=10,
+                command_timeout=30,
+            )
+            async with self._pool.acquire() as conn:
+                await self._init_schema(conn)
 
-    def _init_schema(self) -> None:
-        with self._lock, self._connect() as conn:
-            conn.execute(
-                """
-                CREATE TABLE IF NOT EXISTS organizations (
-                    id BIGSERIAL PRIMARY KEY,
-                    tenant_key TEXT NOT NULL UNIQUE,
-                    created_at TEXT NOT NULL,
-                    name TEXT NOT NULL DEFAULT '',
-                    status TEXT NOT NULL DEFAULT 'ACTIVE'
-                )
-                """
-            )
-            conn.execute(
-                """
-                CREATE TABLE IF NOT EXISTS users (
-                    id BIGSERIAL PRIMARY KEY,
-                    google_sub TEXT NOT NULL UNIQUE,
-                    email TEXT NOT NULL,
-                    org_id BIGINT NOT NULL REFERENCES organizations(id),
-                    role TEXT NOT NULL CHECK(role IN ('ADMIN','CLIENTE')),
-                    created_at TEXT NOT NULL
-                )
-                """
-            )
-            conn.execute(
-                """
-                CREATE TABLE IF NOT EXISTS owner_emails (
-                    email TEXT PRIMARY KEY,
-                    created_at TEXT NOT NULL
-                )
-                """
-            )
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_users_org ON users(org_id)")
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_users_email ON users(email)")
-            self._seed_env_owners(conn)
+    async def close(self) -> None:
+        if self._pool is not None:
+            await self._pool.close()
+            self._pool = None
 
-    def _seed_env_owners(self, conn) -> None:
+    async def _ready_pool(self) -> asyncpg.Pool:
+        if self._pool is None:
+            await self.init()
+        if self._pool is None:
+            raise RuntimeError("Pool SQL no inicializado")
+        return self._pool
+
+    async def _init_schema(self, conn) -> None:
+        await conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS organizations (
+                id BIGSERIAL PRIMARY KEY,
+                tenant_key TEXT NOT NULL UNIQUE,
+                created_at TEXT NOT NULL,
+                name TEXT NOT NULL DEFAULT '',
+                status TEXT NOT NULL DEFAULT 'ACTIVE'
+            )
+            """
+        )
+        await conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS users (
+                id BIGSERIAL PRIMARY KEY,
+                google_sub TEXT NOT NULL UNIQUE,
+                email TEXT NOT NULL,
+                org_id BIGINT NOT NULL REFERENCES organizations(id),
+                role TEXT NOT NULL CHECK(role IN ('ADMIN','CLIENTE')),
+                created_at TEXT NOT NULL
+            )
+            """
+        )
+        await conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS owner_emails (
+                email TEXT PRIMARY KEY,
+                created_at TEXT NOT NULL
+            )
+            """
+        )
+        await conn.execute("CREATE INDEX IF NOT EXISTS idx_users_org ON users(org_id)")
+        await conn.execute("CREATE INDEX IF NOT EXISTS idx_users_email ON users(email)")
+        await self._seed_env_owners(conn)
+
+    async def _seed_env_owners(self, conn) -> None:
         now = _utc_now_iso()
         for email in OWNER_EMAILS:
-            conn.execute(
+            await conn.execute(
                 """
                 INSERT INTO owner_emails (email, created_at)
-                VALUES (%s, %s)
+                VALUES ($1, $2)
                 ON CONFLICT(email) DO NOTHING
                 """,
-                (email.lower().strip(), now),
+                email.lower().strip(),
+                now,
             )
 
-    def _fetchone(self, sql: str, params: tuple[Any, ...] = ()):
-        with self._lock, self._connect() as conn:
-            return conn.execute(sql, params).fetchone()
-
-    def get_org_by_id(self, org_id: int) -> Optional[OrgRow]:
-        row = self._fetchone(
-            "SELECT id, tenant_key, created_at, name, status FROM organizations WHERE id = %s",
-            (org_id,),
+    async def get_org_by_id(self, org_id: int) -> Optional[OrgRow]:
+        row = await self._fetchrow(
+            "SELECT id, tenant_key, created_at, name, status FROM organizations WHERE id = $1",
+            org_id,
         )
         return self._org_from_row(row)
 
-    def get_org_by_tenant(self, tenant_key: str) -> Optional[OrgRow]:
-        row = self._fetchone(
-            "SELECT id, tenant_key, created_at, name, status FROM organizations WHERE tenant_key = %s",
-            (tenant_key.lower().strip(),),
+    async def get_org_by_tenant(self, tenant_key: str) -> Optional[OrgRow]:
+        row = await self._fetchrow(
+            "SELECT id, tenant_key, created_at, name, status FROM organizations WHERE tenant_key = $1",
+            tenant_key.lower().strip(),
         )
         return self._org_from_row(row)
 
-    def create_org(self, tenant_key: str, name: str = "") -> OrgRow:
+    async def create_org(self, tenant_key: str, name: str = "") -> OrgRow:
         tenant = tenant_key.lower().strip()
-        row = self._write_returning(
+        row = await self._fetchrow(
             """
             INSERT INTO organizations (tenant_key, created_at, name, status)
-            VALUES (%s, %s, %s, 'ACTIVE')
+            VALUES ($1, $2, $3, 'ACTIVE')
             RETURNING id, tenant_key, created_at, name, status
             """,
-            (tenant, _utc_now_iso(), name.strip() or tenant),
+            tenant,
+            _utc_now_iso(),
+            name.strip() or tenant,
         )
         org = self._org_from_row(row)
         if org is None:
             raise RuntimeError("organization create failed")
         return org
 
-    def upsert_org(self, tenant_key: str, name: str) -> OrgRow:
-        existing = self.get_org_by_tenant(tenant_key)
+    async def upsert_org(self, tenant_key: str, name: str) -> OrgRow:
+        existing = await self.get_org_by_tenant(tenant_key)
         if existing is None:
-            return self.create_org(tenant_key, name)
+            return await self.create_org(tenant_key, name)
         if existing.status != "ACTIVE":
-            self.update_org_status(existing.id, "ACTIVE")
-            refreshed = self.get_org_by_id(existing.id)
+            await self.update_org_status(existing.id, "ACTIVE")
+            refreshed = await self.get_org_by_id(existing.id)
             if refreshed is not None:
                 return refreshed
         return existing
 
-    def list_orgs(self, include_deleted: bool = True) -> list[OrgRow]:
+    async def list_orgs(self, include_deleted: bool = True) -> list[OrgRow]:
         where = "" if include_deleted else "WHERE status = 'ACTIVE'"
-        with self._lock, self._connect() as conn:
-            rows = conn.execute(
-                f"SELECT id, tenant_key, created_at, name, status FROM organizations {where} ORDER BY id"
-            ).fetchall()
+        rows = await self._fetch(
+            f"SELECT id, tenant_key, created_at, name, status FROM organizations {where} ORDER BY id"
+        )
         return [org for org in (self._org_from_row(row) for row in rows) if org]
 
-    def update_org_status(self, org_id: int, status: str) -> bool:
-        return self._execute_bool(
-            "UPDATE organizations SET status = %s WHERE id = %s",
-            (status, org_id),
+    async def update_org_status(self, org_id: int, status: str) -> bool:
+        return await self._execute_bool(
+            "UPDATE organizations SET status = $1 WHERE id = $2",
+            status,
+            org_id,
         )
 
-    def count_users_in_org(self, org_id: int) -> int:
-        row = self._fetchone("SELECT COUNT(*) AS c FROM users WHERE org_id = %s", (org_id,))
+    async def count_users_in_org(self, org_id: int) -> int:
+        row = await self._fetchrow("SELECT COUNT(*) AS c FROM users WHERE org_id = $1", org_id)
         return int(row["c"] if row is not None else 0)
 
-    def get_user_by_sub(self, google_sub: str) -> Optional[UserRow]:
-        row = self._fetchone(
-            "SELECT id, google_sub, email, org_id, role, created_at FROM users WHERE google_sub = %s",
-            (google_sub,),
+    async def get_user_by_sub(self, google_sub: str) -> Optional[UserRow]:
+        row = await self._fetchrow(
+            "SELECT id, google_sub, email, org_id, role, created_at FROM users WHERE google_sub = $1",
+            google_sub,
         )
         return self._user_from_row(row)
 
-    def get_user_by_id(self, user_id: int) -> Optional[UserRow]:
-        row = self._fetchone(
-            "SELECT id, google_sub, email, org_id, role, created_at FROM users WHERE id = %s",
-            (user_id,),
+    async def get_user_by_id(self, user_id: int) -> Optional[UserRow]:
+        row = await self._fetchrow(
+            "SELECT id, google_sub, email, org_id, role, created_at FROM users WHERE id = $1",
+            user_id,
         )
         return self._user_from_row(row)
 
-    def create_user(self, google_sub: str, email: str, org_id: int, role: str) -> UserRow:
-        row = self._write_returning(
+    async def create_user(self, google_sub: str, email: str, org_id: int, role: str) -> UserRow:
+        row = await self._fetchrow(
             """
             INSERT INTO users (google_sub, email, org_id, role, created_at)
-            VALUES (%s, %s, %s, %s, %s)
+            VALUES ($1, $2, $3, $4, $5)
             RETURNING id, google_sub, email, org_id, role, created_at
             """,
-            (google_sub, email.lower().strip(), org_id, role, _utc_now_iso()),
+            google_sub,
+            email.lower().strip(),
+            org_id,
+            role,
+            _utc_now_iso(),
         )
         user = self._user_from_row(row)
         if user is None:
             raise RuntimeError("user create failed")
         return user
 
-    def update_user_role(self, user_id: int, org_id: int, role: str) -> bool:
-        return self._execute_bool(
-            "UPDATE users SET role = %s WHERE id = %s AND org_id = %s",
-            (role, user_id, org_id),
+    async def update_user_role(self, user_id: int, org_id: int, role: str) -> bool:
+        return await self._execute_bool(
+            "UPDATE users SET role = $1 WHERE id = $2 AND org_id = $3",
+            role,
+            user_id,
+            org_id,
         )
 
-    def update_user_membership(self, user_id: int, org_id: int, role: str) -> bool:
-        return self._execute_bool(
-            "UPDATE users SET org_id = %s, role = %s WHERE id = %s",
-            (org_id, role, user_id),
+    async def update_user_membership(self, user_id: int, org_id: int, role: str) -> bool:
+        return await self._execute_bool(
+            "UPDATE users SET org_id = $1, role = $2 WHERE id = $3",
+            org_id,
+            role,
+            user_id,
         )
 
-    def list_users_in_org(self, org_id: int) -> list[UserRow]:
-        with self._lock, self._connect() as conn:
-            rows = conn.execute(
-                """
-                SELECT id, google_sub, email, org_id, role, created_at
-                FROM users WHERE org_id = %s ORDER BY id
-                """,
-                (org_id,),
-            ).fetchall()
+    async def list_users_in_org(self, org_id: int) -> list[UserRow]:
+        rows = await self._fetch(
+            """
+            SELECT id, google_sub, email, org_id, role, created_at
+            FROM users WHERE org_id = $1 ORDER BY id
+            """,
+            org_id,
+        )
         return [user for user in (self._user_from_row(row) for row in rows) if user]
 
-    def add_owner_email(self, email: str) -> None:
-        self._execute_bool(
+    async def add_owner_email(self, email: str) -> None:
+        await self._execute_bool(
             """
             INSERT INTO owner_emails (email, created_at)
-            VALUES (%s, %s)
+            VALUES ($1, $2)
             ON CONFLICT(email) DO NOTHING
             """,
-            (email.lower().strip(), _utc_now_iso()),
+            email.lower().strip(),
+            _utc_now_iso(),
         )
 
-    def is_owner_email(self, email: str) -> bool:
+    async def is_owner_email(self, email: str) -> bool:
         clean = email.lower().strip()
-        row = self._fetchone("SELECT email FROM owner_emails WHERE email = %s", (clean,))
+        row = await self._fetchrow("SELECT email FROM owner_emails WHERE email = $1", clean)
         return row is not None or clean in OWNER_EMAILS
 
-    def _write_returning(self, sql: str, params: tuple[Any, ...]):
-        with self._lock, self._connect() as conn:
-            return conn.execute(sql, params).fetchone()
+    async def _fetchrow(self, sql: str, *args):
+        pool = await self._ready_pool()
+        async with pool.acquire() as conn:
+            return await conn.fetchrow(sql, *args)
 
-    def _execute_bool(self, sql: str, params: tuple[Any, ...]) -> bool:
-        with self._lock, self._connect() as conn:
-            cur = conn.execute(sql, params)
-            return cur.rowcount > 0
+    async def _fetch(self, sql: str, *args):
+        pool = await self._ready_pool()
+        async with pool.acquire() as conn:
+            return await conn.fetch(sql, *args)
+
+    async def _execute_bool(self, sql: str, *args) -> bool:
+        pool = await self._ready_pool()
+        async with pool.acquire() as conn:
+            result = await conn.execute(sql, *args)
+        return not result.endswith(" 0")
 
     @staticmethod
     def _org_from_row(row) -> Optional[OrgRow]:

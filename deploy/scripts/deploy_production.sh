@@ -138,50 +138,59 @@ wait_for_http() {
 make_smoke_token() {
   cd "${APP_DIR}"
   sudo docker compose exec -T api python - "${SMOKE_EMAIL}" <<'PY'
+import asyncio
 import sys
 
 from src.infrastructure.auth_db import get_auth_db
 from src.infrastructure.jwt_session import create_access_token
 from src.infrastructure.membership_db import get_membership_db
 
-email = sys.argv[1].lower().strip()
-db = get_auth_db()
-user = None
-for org in db.list_orgs():
-    for candidate in db.list_users_in_org(org.id):
-        if candidate.email == email:
-            user = candidate
+async def main() -> None:
+    email = sys.argv[1].lower().strip()
+    db = get_auth_db()
+    memberships = get_membership_db()
+    user = None
+    org = None
+    for candidate_org in await db.list_orgs():
+        for candidate in await db.list_users_in_org(candidate_org.id):
+            if candidate.email == email:
+                user = candidate
+                org = candidate_org
+                break
+        if user is not None:
             break
-    if user is not None:
-        break
 
-if user is None:
-    org = db.get_org_by_tenant("veyon") or db.create_org("veyon", "Veyon")
-    user = db.create_user(f"deploy-check-{email}", email, org.id, "ADMIN")
-else:
-    org = db.get_org_by_id(user.org_id)
-    if user.role != "ADMIN":
-        db.update_user_role(user.id, user.org_id, "ADMIN")
-        user = db.get_user_by_id(user.id)
+    if user is None:
+        org = await db.get_org_by_tenant("veyon") or await db.create_org("veyon", "Veyon")
+        user = await db.create_user(f"deploy-check-{email}", email, org.id, "ADMIN")
+    else:
+        org = await db.get_org_by_id(user.org_id)
+        if user.role != "ADMIN":
+            await db.update_user_role(user.id, user.org_id, "ADMIN")
+            user = await db.get_user_by_id(user.id)
 
-get_membership_db().upsert(
-    org_id=user.org_id,
-    email=email,
-    role="ADMIN",
-    user_id=user.id,
-    status="ACTIVE",
-)
-
-print(
-    create_access_token(
-        user_id=user.id,
+    await memberships.upsert(
         org_id=user.org_id,
-        tenant_key=org.tenant_key,
         email=email,
-        role=user.role,
-        google_sub=user.google_sub,
+        role="ADMIN",
+        user_id=user.id,
+        status="ACTIVE",
     )
-)
+
+    print(
+        create_access_token(
+            user_id=user.id,
+            org_id=user.org_id,
+            tenant_key=org.tenant_key,
+            email=email,
+            role=user.role,
+            google_sub=user.google_sub,
+        )
+    )
+    await memberships.close()
+    await db.close()
+
+asyncio.run(main())
 PY
 }
 

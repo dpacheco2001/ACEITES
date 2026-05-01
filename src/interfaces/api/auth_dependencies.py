@@ -20,7 +20,7 @@ def _session_token_from_cookie(request: Request) -> str:
     return token
 
 
-def require_auth(request: Request) -> UserContext:
+async def require_auth(request: Request) -> UserContext:
     token = _session_token_from_cookie(request)
     try:
         payload = decode_access_token(token)
@@ -45,11 +45,11 @@ def require_auth(request: Request) -> UserContext:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="Sesión inválida")
 
     db = get_auth_db()
-    user = db.get_user_by_id(int(uid))
+    user = await db.get_user_by_id(int(uid))
     if user is None:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="Usuario no existe")
 
-    org = db.get_org_by_id(user.org_id)
+    org = await db.get_org_by_id(user.org_id)
     if org is None:
         raise HTTPException(
             status.HTTP_401_UNAUTHORIZED,
@@ -69,11 +69,11 @@ def require_auth(request: Request) -> UserContext:
         role=user.role,
         google_sub=user.google_sub,
         org_name=org.name,
-        is_owner=db.is_owner_email(user.email),
+        is_owner=await db.is_owner_email(user.email),
     )
 
 
-def require_admin(uc: UserContext = Depends(require_auth)) -> UserContext:
+async def require_admin(uc: UserContext = Depends(require_auth)) -> UserContext:
     if uc.role != "ADMIN":
         raise HTTPException(
             status.HTTP_403_FORBIDDEN,
@@ -82,7 +82,7 @@ def require_admin(uc: UserContext = Depends(require_auth)) -> UserContext:
     return uc
 
 
-def require_owner(uc: UserContext = Depends(require_auth)) -> UserContext:
+async def require_owner(uc: UserContext = Depends(require_auth)) -> UserContext:
     if not uc.is_owner:
         raise HTTPException(
             status.HTTP_403_FORBIDDEN,

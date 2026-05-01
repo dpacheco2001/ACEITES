@@ -37,9 +37,9 @@ def _tenant_for_user(google_sub: str) -> str:
     return f"user-{digest}"
 
 
-def _user_public_from_row(user: UserRow) -> UserPublic:
+async def _user_public_from_row(user: UserRow) -> UserPublic:
     db = get_auth_db()
-    org = db.get_org_by_id(user.org_id)
+    org = await db.get_org_by_id(user.org_id)
     tenant_key = org.tenant_key if org else ""
     return UserPublic(
         id=user.id,
@@ -51,7 +51,7 @@ def _user_public_from_row(user: UserRow) -> UserPublic:
         dataset_loaded=TenantExcelRegistry.has_tenant_dataset(tenant_key)
         if tenant_key
         else False,
-        is_owner=db.is_owner_email(user.email),
+        is_owner=await db.is_owner_email(user.email),
     )
 
 
@@ -77,9 +77,9 @@ def _clear_session_cookie(response: Response) -> None:
     )
 
 
-def _build_session_response(response: Response, user: UserRow) -> AuthResponse:
+async def _build_session_response(response: Response, user: UserRow) -> AuthResponse:
     db = get_auth_db()
-    org = db.get_org_by_id(user.org_id)
+    org = await db.get_org_by_id(user.org_id)
     if org is None:
         raise HTTPException(
             status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -101,7 +101,7 @@ def _build_session_response(response: Response, user: UserRow) -> AuthResponse:
         ) from e
     _set_session_cookie(response, token)
     return AuthResponse(
-        user=_user_public_from_row(user),
+        user=await _user_public_from_row(user),
         expires_in_seconds=ACCESS_TOKEN_EXPIRE_SECONDS,
     )
 
@@ -112,7 +112,7 @@ def auth_client_config() -> GoogleClientConfigResponse:
 
 
 @router.post("/auth/google", response_model=AuthResponse)
-def auth_google(body: GoogleAuthRequest, response: Response) -> AuthResponse:
+async def auth_google(body: GoogleAuthRequest, response: Response) -> AuthResponse:
     if not GOOGLE_CLIENT_ID:
         raise HTTPException(
             status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -150,39 +150,39 @@ def auth_google(body: GoogleAuthRequest, response: Response) -> AuthResponse:
 
     db = get_auth_db()
     memberships = get_membership_db()
-    invited = memberships.get_by_email(email)
-    existing = db.get_user_by_sub(google_sub)
+    invited = await memberships.get_by_email(email)
+    existing = await db.get_user_by_sub(google_sub)
 
     if invited is not None:
-        org = db.get_org_by_id(invited.org_id)
+        org = await db.get_org_by_id(invited.org_id)
         if org is None:
             raise HTTPException(
                 status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail="La membresía apunta a una organización inexistente",
             )
         if existing is None:
-            existing = db.create_user(
+            existing = await db.create_user(
                 google_sub=google_sub,
                 email=email,
                 org_id=org.id,
                 role=invited.role,
             )
         elif existing.org_id != org.id or existing.role != invited.role:
-            db.update_user_membership(existing.id, org.id, invited.role)
-            updated = db.get_user_by_id(existing.id)
+            await db.update_user_membership(existing.id, org.id, invited.role)
+            updated = await db.get_user_by_id(existing.id)
             if updated is None:
                 raise HTTPException(
                     status.HTTP_500_INTERNAL_SERVER_ERROR,
                     detail="No se pudo actualizar la organización del usuario",
                 )
             existing = updated
-        memberships.accept(invited.id, existing.id)
+        await memberships.accept(invited.id, existing.id)
         if TenantExcelRegistry.has_tenant_dataset(org.tenant_key):
             TenantExcelRegistry.preload_tenant(org.tenant_key)
-        return _build_session_response(response, existing)
+        return await _build_session_response(response, existing)
 
     if existing is not None:
-        org = db.get_org_by_id(existing.org_id)
+        org = await db.get_org_by_id(existing.org_id)
         if org is None:
             raise HTTPException(
                 status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -190,14 +190,14 @@ def auth_google(body: GoogleAuthRequest, response: Response) -> AuthResponse:
             )
         if TenantExcelRegistry.has_tenant_dataset(org.tenant_key):
             TenantExcelRegistry.preload_tenant(org.tenant_key)
-        return _build_session_response(response, existing)
+        return await _build_session_response(response, existing)
 
-    org = db.get_org_by_tenant(tenant_key)
+    org = await db.get_org_by_tenant(tenant_key)
     if org is None:
-        org = db.create_org(tenant_key)
+        org = await db.create_org(tenant_key)
 
-    role = "ADMIN" if db.count_users_in_org(org.id) == 0 else "CLIENTE"
-    created = db.create_user(
+    role = "ADMIN" if await db.count_users_in_org(org.id) == 0 else "CLIENTE"
+    created = await db.create_user(
         google_sub=google_sub,
         email=email,
         org_id=org.id,
@@ -205,7 +205,7 @@ def auth_google(body: GoogleAuthRequest, response: Response) -> AuthResponse:
     )
     if TenantExcelRegistry.has_tenant_dataset(org.tenant_key):
         TenantExcelRegistry.preload_tenant(org.tenant_key)
-    return _build_session_response(response, created)
+    return await _build_session_response(response, created)
 
 
 @router.post("/auth/logout", response_model=LogoutResponse)
@@ -215,11 +215,11 @@ def logout(response: Response) -> LogoutResponse:
 
 
 @router.get("/me", response_model=MeResponse)
-def me(uc: UserContext = Depends(deps.require_auth)) -> MeResponse:
-    user = get_auth_db().get_user_by_id(uc.user_id)
+async def me(uc: UserContext = Depends(deps.require_auth)) -> MeResponse:
+    user = await get_auth_db().get_user_by_id(uc.user_id)
     if user is None:
         raise HTTPException(
             status.HTTP_401_UNAUTHORIZED,
             detail="Usuario no encontrado",
         )
-    return MeResponse(user=_user_public_from_row(user))
+    return MeResponse(user=await _user_public_from_row(user))

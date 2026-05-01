@@ -30,12 +30,12 @@ def _slugify_name(name: str) -> str:
     return slug[:48] or "org"
 
 
-def _next_tenant_key(name: str) -> str:
+async def _next_tenant_key(name: str) -> str:
     db = get_auth_db()
     base = _slugify_name(name)
     candidate = base
     suffix = 2
-    while db.get_org_by_tenant(candidate) is not None:
+    while await db.get_org_by_tenant(candidate) is not None:
         candidate = f"{base}-{suffix}"
         suffix += 1
     return candidate
@@ -52,9 +52,9 @@ def _dataset_counts(tenant_key: str) -> tuple[bool, int, int]:
     return True, int(len(df)), equipos
 
 
-def _org_item(org) -> OwnerOrgItem:
+async def _org_item(org) -> OwnerOrgItem:
     auth_db = get_auth_db()
-    memberships = get_membership_db().list_by_org(org.id)
+    memberships = await get_membership_db().list_by_org(org.id)
     loaded, rows, equipos = _dataset_counts(org.tenant_key)
     admin_emails = [
         item.email
@@ -67,7 +67,7 @@ def _org_item(org) -> OwnerOrgItem:
         name=org.name,
         status=org.status,
         created_at=org.created_at,
-        user_count=auth_db.count_users_in_org(org.id),
+        user_count=await auth_db.count_users_in_org(org.id),
         dataset_loaded=loaded,
         dataset_rows=rows,
         dataset_equipos=equipos,
@@ -76,22 +76,23 @@ def _org_item(org) -> OwnerOrgItem:
 
 
 @router.get("/organizations", response_model=OwnerOrgsResponse)
-def list_organizations(
+async def list_organizations(
     uc: UserContext = Depends(deps.require_owner),
 ) -> OwnerOrgsResponse:
     del uc
+    orgs = await get_auth_db().list_orgs()
     return OwnerOrgsResponse(
-        organizations=[_org_item(org) for org in get_auth_db().list_orgs()]
+        organizations=[await _org_item(org) for org in orgs]
     )
 
 
 @router.post("/organizations", response_model=OwnerOrgItem)
-def create_organization(
+async def create_organization(
     body: OwnerOrgCreate,
     uc: UserContext = Depends(deps.require_owner),
 ) -> OwnerOrgItem:
     del uc
-    tenant_key = _next_tenant_key(body.name)
+    tenant_key = await _next_tenant_key(body.name)
     admin_email = body.admin_email.lower().strip()
     if not _TENANT_RE.match(tenant_key):
         raise HTTPException(
@@ -102,35 +103,35 @@ def create_organization(
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Email inválido")
 
     auth_db = get_auth_db()
-    org = auth_db.upsert_org(tenant_key, body.name.strip())
-    user = next((u for u in auth_db.list_users_in_org(org.id) if u.email == admin_email), None)
+    org = await auth_db.upsert_org(tenant_key, body.name.strip())
+    user = next((u for u in await auth_db.list_users_in_org(org.id) if u.email == admin_email), None)
     if user is not None and user.role != "ADMIN":
-        auth_db.update_user_role(user.id, org.id, "ADMIN")
+        await auth_db.update_user_role(user.id, org.id, "ADMIN")
 
-    get_membership_db().upsert(
+    await get_membership_db().upsert(
         org_id=org.id,
         email=admin_email,
         role="ADMIN",
         user_id=user.id if user else None,
         status="ACTIVE" if user else "PENDING",
     )
-    return _org_item(org)
+    return await _org_item(org)
 
 
 @router.post("/owners/transfer", response_model=OwnerOrgsResponse)
-def transfer_owner(
+async def transfer_owner(
     body: OwnerTransferRequest,
     uc: UserContext = Depends(deps.require_owner),
 ) -> OwnerOrgsResponse:
     email = body.email.lower().strip()
     if "@" not in email:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Email inválido")
-    get_auth_db().add_owner_email(email)
-    return list_organizations(uc)
+    await get_auth_db().add_owner_email(email)
+    return await list_organizations(uc)
 
 
 @router.delete("/organizations/{org_id}", response_model=OwnerOrgItem)
-def delete_organization(
+async def delete_organization(
     org_id: int,
     uc: UserContext = Depends(deps.require_owner),
 ) -> OwnerOrgItem:
@@ -140,9 +141,9 @@ def delete_organization(
             detail="No puedes desactivar la organización de tu sesión actual",
         )
     db = get_auth_db()
-    org = db.get_org_by_id(org_id)
+    org = await db.get_org_by_id(org_id)
     if org is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Organización no encontrada")
-    db.update_org_status(org_id, "DELETED")
-    updated = db.get_org_by_id(org_id)
-    return _org_item(updated)
+    await db.update_org_status(org_id, "DELETED")
+    updated = await db.get_org_by_id(org_id)
+    return await _org_item(updated)

@@ -12,6 +12,8 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from src.infrastructure.auth_db import get_auth_db
+from src.infrastructure.membership_db import get_membership_db
 from src.infrastructure.settings import CORS_ORIGINS
 from src.interfaces.api.admin_router import router as admin_router
 from src.interfaces.api.atlas_router import router as atlas_router
@@ -28,6 +30,10 @@ logger = logging.getLogger("oilmine")
 async def lifespan(app: FastAPI):
     t0 = time.perf_counter()
 
+    logger.info("Inicializando Postgres async...")
+    await get_auth_db().init()
+    await get_membership_db().init()
+
     logger.info("Precargando modelos ML...")
     try:
         get_modelo_loader().precargar()
@@ -36,7 +42,11 @@ async def lifespan(app: FastAPI):
         logger.error("Error precargando modelos: %s", e)
 
     logger.info("App lista en %.2fs totales.", time.perf_counter() - t0)
-    yield
+    try:
+        yield
+    finally:
+        await get_membership_db().close()
+        await get_auth_db().close()
 
 
 app = FastAPI(

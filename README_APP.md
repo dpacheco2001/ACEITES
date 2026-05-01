@@ -2,6 +2,8 @@
 
 Sistema predictivo de mantenimiento para la flota 794AC de Quellaveco.
 FastAPI + React + Vite · arquitectura hexagonal · modelos ML ya entrenados.
+La persistencia de usuarios, organizaciones y membresías usa Postgres con
+`asyncpg`.
 
 ## Estructura
 
