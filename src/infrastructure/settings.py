@@ -22,7 +22,7 @@ EXCEL_FILENAME = EXCEL_PATH.name
 EXCEL_SHEET = "794AC QUELLA"
 
 TENANTS_ROOT = ROOT_DIR / "data" / "tenants"
-AUTH_DB_PATH = ROOT_DIR / "data" / "auth.sqlite3"
+DATABASE_URL = os.getenv("DATABASE_URL", "").strip()
 
 GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID", "").strip()
 GOOGLE_ID_TOKEN_CLOCK_SKEW_SECONDS = int(
@@ -32,6 +32,11 @@ JWT_SECRET = os.getenv("JWT_SECRET", "").strip()
 JWT_ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "60"))
 ACCESS_TOKEN_EXPIRE_SECONDS = ACCESS_TOKEN_EXPIRE_MINUTES * 60
+OWNER_EMAILS = {
+    e.strip().lower()
+    for e in os.getenv("OWNER_EMAILS", "").split(",")
+    if e.strip()
+}
 
 SESSION_COOKIE_NAME = os.getenv("SESSION_COOKIE_NAME", "oilmine_session").strip()
 SESSION_COOKIE_NAME = SESSION_COOKIE_NAME or "oilmine_session"

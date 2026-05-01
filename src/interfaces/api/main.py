@@ -16,7 +16,9 @@ from src.infrastructure.settings import CORS_ORIGINS
 from src.interfaces.api.admin_router import router as admin_router
 from src.interfaces.api.atlas_router import router as atlas_router
 from src.interfaces.api.auth_router import router as auth_router
+from src.interfaces.api.dataset_router import router as dataset_router
 from src.interfaces.api.dependencies import get_modelo_loader
+from src.interfaces.api.owner_router import router as owner_router
 from src.interfaces.api.routers import router as api_router
 
 logger = logging.getLogger("oilmine")
@@ -59,6 +61,8 @@ app.include_router(auth_router)
 app.include_router(api_router)
 app.include_router(atlas_router)
 app.include_router(admin_router)
+app.include_router(dataset_router)
+app.include_router(owner_router)
 
 
 @app.get("/", tags=["health"])

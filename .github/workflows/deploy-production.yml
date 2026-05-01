@@ -1,0 +1,31 @@
+name: Deploy production
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+concurrency:
+  group: oilmine-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy OilMine
+    runs-on:
+      - self-hosted
+      - oilmine-prod
+      - Linux
+      - ARM64
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Deploy
+        env:
+          APP_DIR: /opt/oilmine
+          DEPLOY_SMOKE_EMAIL: diegojavier20010@gmail.com
+        run: bash deploy/scripts/deploy_production.sh

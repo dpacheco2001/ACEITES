@@ -55,6 +55,11 @@ def require_auth(request: Request) -> UserContext:
             status.HTTP_401_UNAUTHORIZED,
             detail="Organización no existe",
         )
+    if org.status != "ACTIVE":
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            detail="Organización desactivada",
+        )
 
     return UserContext(
         user_id=user.id,
@@ -63,6 +68,8 @@ def require_auth(request: Request) -> UserContext:
         email=user.email,
         role=user.role,
         google_sub=user.google_sub,
+        org_name=org.name,
+        is_owner=db.is_owner_email(user.email),
     )
 
 
@@ -71,5 +78,14 @@ def require_admin(uc: UserContext = Depends(require_auth)) -> UserContext:
         raise HTTPException(
             status.HTTP_403_FORBIDDEN,
             detail="Se requiere rol de administrador",
+        )
+    return uc
+
+
+def require_owner(uc: UserContext = Depends(require_auth)) -> UserContext:
+    if not uc.is_owner:
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            detail="Se requiere usuario owner",
         )
     return uc

@@ -18,11 +18,26 @@ class TenantExcelRegistry:
     _lock = threading.Lock()
 
     @classmethod
+    def has_tenant_dataset(cls, tenant_key: str) -> bool:
+        return tenant_excel_path(tenant_key).exists()
+
+    @classmethod
     def ensure_tenant_dataset(cls, tenant_key: str) -> Path:
         dst = tenant_excel_path(tenant_key)
         dst.parent.mkdir(parents=True, exist_ok=True)
         if not dst.exists():
             shutil.copy2(EXCEL_PATH, dst)
+        return dst
+
+    @classmethod
+    def save_tenant_dataset(cls, tenant_key: str, source_path: Path) -> Path:
+        dst = tenant_excel_path(tenant_key)
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(source_path, dst)
+        shutil.rmtree(dst.parent / ".cache", ignore_errors=True)
+        key = sanitize_tenant_key(tenant_key)
+        with cls._lock:
+            cls._instances.pop(key, None)
         return dst
 
     @classmethod
@@ -38,7 +53,8 @@ class TenantExcelRegistry:
 
     @classmethod
     def get_manager(cls, tenant_key: str) -> ExcelManager:
-        cls.ensure_tenant_dataset(tenant_key)
+        if not cls.has_tenant_dataset(tenant_key):
+            raise FileNotFoundError(f"Dataset no cargado para tenant {tenant_key}")
         key = sanitize_tenant_key(tenant_key)
         with cls._lock:
             if key not in cls._instances:

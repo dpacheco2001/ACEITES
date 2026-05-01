@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from datetime import date
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, Field
 
@@ -120,6 +120,9 @@ class UserPublic(BaseModel):
     org_id: int
     tenant_key: str
     role: str
+    org_name: str = ""
+    dataset_loaded: bool = False
+    is_owner: bool = False
 
 
 class AuthResponse(BaseModel):
@@ -142,12 +145,87 @@ class AdminUserItem(BaseModel):
     created_at: str
 
 
-class AdminUsersResponse(BaseModel):
-    users: List[AdminUserItem]
-
-
 class AdminRolePatch(BaseModel):
     role: str = Field(pattern="^(ADMIN|CLIENTE)$")
+
+
+class AdminMembershipItem(BaseModel):
+    id: int
+    email: str
+    role: str
+    status: str
+    user_id: Optional[int] = None
+    created_at: str
+
+
+class AdminUsersResponse(BaseModel):
+    users: List[AdminUserItem]
+    memberships: List[AdminMembershipItem] = []
+
+
+class AdminMembershipCreate(BaseModel):
+    email: str = Field(..., min_length=3)
+    role: str = Field(default="CLIENTE", pattern="^(ADMIN|CLIENTE)$")
+
+
+class OwnerOrgItem(BaseModel):
+    id: int
+    tenant_key: str
+    name: str
+    status: str
+    created_at: str
+    user_count: int = 0
+    dataset_loaded: bool = False
+    dataset_rows: int = 0
+    dataset_equipos: int = 0
+    admin_emails: List[str] = []
+
+
+class OwnerOrgsResponse(BaseModel):
+    organizations: List[OwnerOrgItem]
+
+
+class OwnerOrgCreate(BaseModel):
+    name: str = Field(..., min_length=2, max_length=120)
+    admin_email: str = Field(..., min_length=3)
+
+
+class OwnerTransferRequest(BaseModel):
+    email: str = Field(..., min_length=3)
+
+
+class DatasetStatusResponse(BaseModel):
+    loaded: bool
+    tenant_key: str
+    org_name: str = ""
+    total_rows: int = 0
+    total_equipos: int = 0
+    required_headers: List[str]
+    optional_headers: List[str]
+    errors: List[str] = []
+    warnings: List[str] = []
+
+
+class DatasetValidationResponse(BaseModel):
+    ok: bool
+    total_rows: int
+    total_equipos: int
+    missing_headers: List[str]
+    errors: List[str]
+    warnings: List[str]
+    headers: List[str]
+    required_headers: List[str]
+    optional_headers: List[str]
+
+
+class DatasetPreviewResponse(BaseModel):
+    loaded: bool
+    tenant_key: str
+    org_name: str = ""
+    total_rows: int = 0
+    total_equipos: int = 0
+    columns: List[str] = []
+    rows: List[Dict[str, Any]] = []
 
 
 # ======================================================================

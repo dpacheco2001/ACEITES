@@ -1,0 +1,73 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-oilmine}
+      POSTGRES_USER: ${POSTGRES_USER:-oilmine}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - target: 5432
+        published: "0"
+        host_ip: 127.0.0.1
+        protocol: tcp
+    expose:
+      - "5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-oilmine}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-oilmine}
+    restart: unless-stopped
+    volumes:
+      - ./data:/app/data
+    expose:
+      - "8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  atlas:
+    build:
+      context: ./atlas-service
+    env_file:
+      - .env
+    environment:
+      ATLAS_BACKEND_URL: http://api:8000
+      ATLAS_PORT: "8787"
+      ATLAS_RUNTIME_DIR: /app/.runtime/atlas
+    restart: unless-stopped
+    volumes:
+      - atlas_runtime:/app/.runtime/atlas
+    expose:
+      - "8787"
+    depends_on:
+      api:
+        condition: service_healthy
+
+  frontend:
+    build:
+      context: ./frontend
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8088:80"
+    depends_on:
+      api:
+        condition: service_healthy
+      atlas:
+        condition: service_healthy
+
+volumes:
+  atlas_runtime:
+  postgres_data:

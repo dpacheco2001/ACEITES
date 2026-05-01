@@ -5,9 +5,10 @@ import hashlib
 
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 
-from src.infrastructure.auth_db import AuthDB, UserRow, get_auth_db
+from src.infrastructure.auth_db import UserRow, get_auth_db
 from src.infrastructure.google_id_token import verify_google_id_token
 from src.infrastructure.jwt_session import SessionConfigError, create_access_token
+from src.infrastructure.membership_db import get_membership_db
 from src.infrastructure.settings import (
     ACCESS_TOKEN_EXPIRE_SECONDS,
     GOOGLE_CLIENT_ID,
@@ -36,43 +37,21 @@ def _tenant_for_user(google_sub: str) -> str:
     return f"user-{digest}"
 
 
-def _ensure_private_org(db: AuthDB, user: UserRow, tenant_key: str) -> UserRow:
-    current_org = db.get_org_by_id(user.org_id)
-    if current_org and current_org.tenant_key == tenant_key:
-        return user
-
-    target_org = db.get_org_by_tenant(tenant_key)
-    if target_org is None:
-        target_org = db.create_org(tenant_key)
-
-    if current_org is not None:
-        TenantExcelRegistry.clone_tenant_dataset(current_org.tenant_key, tenant_key)
-    else:
-        TenantExcelRegistry.ensure_tenant_dataset(tenant_key)
-
-    if not db.update_user_membership(user.id, target_org.id, "ADMIN"):
-        raise HTTPException(
-            status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="No se pudo actualizar la organización del usuario",
-        )
-    updated = db.get_user_by_id(user.id)
-    if updated is None:
-        raise HTTPException(
-            status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="No se pudo actualizar la organización del usuario",
-        )
-    return updated
-
-
 def _user_public_from_row(user: UserRow) -> UserPublic:
     db = get_auth_db()
     org = db.get_org_by_id(user.org_id)
+    tenant_key = org.tenant_key if org else ""
     return UserPublic(
         id=user.id,
         email=user.email,
         org_id=user.org_id,
-        tenant_key=org.tenant_key if org else "",
+        tenant_key=tenant_key,
         role=user.role,
+        org_name=org.name if org else "",
+        dataset_loaded=TenantExcelRegistry.has_tenant_dataset(tenant_key)
+        if tenant_key
+        else False,
+        is_owner=db.is_owner_email(user.email),
     )
 
 
@@ -170,17 +149,47 @@ def auth_google(body: GoogleAuthRequest, response: Response) -> AuthResponse:
     tenant_key = _tenant_for_user(google_sub)
 
     db = get_auth_db()
+    memberships = get_membership_db()
+    invited = memberships.get_by_email(email)
     existing = db.get_user_by_sub(google_sub)
+
+    if invited is not None:
+        org = db.get_org_by_id(invited.org_id)
+        if org is None:
+            raise HTTPException(
+                status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="La membresía apunta a una organización inexistente",
+            )
+        if existing is None:
+            existing = db.create_user(
+                google_sub=google_sub,
+                email=email,
+                org_id=org.id,
+                role=invited.role,
+            )
+        elif existing.org_id != org.id or existing.role != invited.role:
+            db.update_user_membership(existing.id, org.id, invited.role)
+            updated = db.get_user_by_id(existing.id)
+            if updated is None:
+                raise HTTPException(
+                    status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail="No se pudo actualizar la organización del usuario",
+                )
+            existing = updated
+        memberships.accept(invited.id, existing.id)
+        if TenantExcelRegistry.has_tenant_dataset(org.tenant_key):
+            TenantExcelRegistry.preload_tenant(org.tenant_key)
+        return _build_session_response(response, existing)
+
     if existing is not None:
-        existing = _ensure_private_org(db, existing, tenant_key)
         org = db.get_org_by_id(existing.org_id)
         if org is None:
             raise HTTPException(
                 status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail="Inconsistencia de organización",
             )
-        TenantExcelRegistry.ensure_tenant_dataset(org.tenant_key)
-        TenantExcelRegistry.preload_tenant(org.tenant_key)
+        if TenantExcelRegistry.has_tenant_dataset(org.tenant_key):
+            TenantExcelRegistry.preload_tenant(org.tenant_key)
         return _build_session_response(response, existing)
 
     org = db.get_org_by_tenant(tenant_key)
@@ -194,8 +203,8 @@ def auth_google(body: GoogleAuthRequest, response: Response) -> AuthResponse:
         org_id=org.id,
         role=role,
     )
-    TenantExcelRegistry.ensure_tenant_dataset(org.tenant_key)
-    TenantExcelRegistry.preload_tenant(org.tenant_key)
+    if TenantExcelRegistry.has_tenant_dataset(org.tenant_key):
+        TenantExcelRegistry.preload_tenant(org.tenant_key)
     return _build_session_response(response, created)
 
 

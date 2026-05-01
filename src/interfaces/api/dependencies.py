@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from functools import lru_cache
 
-from fastapi import Depends
+from fastapi import Depends, HTTPException, status
 
 from src.application import (
     IEquipoRepository,
@@ -27,7 +27,7 @@ from src.infrastructure.modelo_loader import ModeloLoader
 from src.infrastructure.predictor import PredictorAdapter
 from src.infrastructure.settings import PREDICCION_CACHE_TTL
 from src.infrastructure.tenant_excel_registry import TenantExcelRegistry
-from src.interfaces.api.auth_dependencies import require_admin, require_auth
+from src.interfaces.api.auth_dependencies import require_admin, require_auth, require_owner
 from src.interfaces.api.user_context import UserContext
 
 
@@ -36,6 +36,7 @@ __all__ = [
     "get_modelo_loader",
     "require_auth",
     "require_admin",
+    "require_owner",
     "get_listar_equipos_uc",
     "get_historial_uc",
     "get_predecir_uc",
@@ -45,6 +46,15 @@ __all__ = [
 
 
 def _repos_for(uc: UserContext) -> tuple[IEquipoRepository, IMuestraRepository]:
+    if not TenantExcelRegistry.has_tenant_dataset(uc.tenant_key):
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            detail={
+                "code": "DATASET_REQUIRED",
+                "message": "La organización todavía no tiene dataset cargado",
+                "redirect_to": "/admin/datos",
+            },
+        )
     manager = TenantExcelRegistry.get_manager(uc.tenant_key)
     return ExcelEquipoRepository(manager), ExcelMuestraRepository(manager)
 

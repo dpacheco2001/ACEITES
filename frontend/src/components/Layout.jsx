@@ -1,9 +1,10 @@
-import { useEffect, useState } from 'react'
+import { lazy, Suspense, useEffect, useState } from 'react'
 import { Link, NavLink, Outlet, useNavigate } from 'react-router-dom'
-import { BarChart3, ClipboardPlus, FileDown, Shield, Truck } from 'lucide-react'
+import { BarChart3, Building2, ClipboardPlus, Database, FileDown, Shield, Truck } from 'lucide-react'
 import { api } from '../api.js'
 import { useAuth } from '../auth/AuthContext.jsx'
-import AtlasLauncher from './AtlasLauncher.jsx'
+
+const AtlasLauncher = lazy(() => import('./AtlasLauncher.jsx'))
 
 function MSIcon({ name, className = '', filled = false, style }) {
   const base = {
@@ -108,7 +109,13 @@ export default function Layout() {
               <TopNavLink to="/nueva-muestra" label="Nueva Muestra" icon={ClipboardPlus} />
               <TopNavLink to="/reportes" label="Reportes" icon={FileDown} />
               {profile?.role === 'ADMIN' && (
-                <TopNavLink to="/admin/usuarios" label="Usuarios" icon={Shield} />
+                <>
+                  <TopNavLink to="/admin/datos" label="Datos" icon={Database} />
+                  <TopNavLink to="/admin/usuarios" label="Usuarios" icon={Shield} />
+                </>
+              )}
+              {profile?.is_owner && (
+                <TopNavLink to="/owner/organizaciones" label="Owner" icon={Building2} />
               )}
             </nav>
           </div>
@@ -154,7 +161,13 @@ export default function Layout() {
         <MobileNavLink to="/nueva-muestra" label="Muestra" icon={ClipboardPlus} />
         <MobileNavLink to="/reportes" label="Reportes" icon={FileDown} />
         {profile?.role === 'ADMIN' && (
-          <MobileNavLink to="/admin/usuarios" label="Admin" icon={Shield} />
+          <>
+            <MobileNavLink to="/admin/datos" label="Datos" icon={Database} />
+            <MobileNavLink to="/admin/usuarios" label="Admin" icon={Shield} />
+          </>
+        )}
+        {profile?.is_owner && (
+          <MobileNavLink to="/owner/organizaciones" label="Owner" icon={Building2} />
         )}
       </nav>
 
@@ -163,7 +176,9 @@ export default function Layout() {
           <Outlet />
         </main>
       </div>
-      <AtlasLauncher />
+      <Suspense fallback={null}>
+        <AtlasLauncher />
+      </Suspense>
     </div>
   )
 }

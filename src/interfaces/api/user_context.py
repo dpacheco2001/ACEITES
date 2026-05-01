@@ -11,3 +11,5 @@ class UserContext(BaseModel):
     email: str
     role: str
     google_sub: str
+    org_name: str = ""
+    is_owner: bool = False
