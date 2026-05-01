@@ -2,9 +2,10 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useChat } from '@ai-sdk/react'
 import { DefaultChatTransport } from 'ai'
 import { Compass, History, Plus, Send, StopCircle, Trash2, X } from 'lucide-react'
-import AtlasMarkdown from './AtlasMarkdown.jsx'
-import AtlasToolPart from './AtlasToolPart.jsx'
+import AtlasMessage from './AtlasMessage.jsx'
+import AtlasResizeHandle from './AtlasResizeHandle.jsx'
 import LoadingProgress from './LoadingProgress.jsx'
+import { useAtlasWindowSize } from './useAtlasWindowSize.js'
 import {
   createAtlasSession,
   loadAtlasSessions,
@@ -22,6 +23,7 @@ export default function AtlasLauncher() {
   const [input, setInput] = useState('')
   const endRef = useRef(null)
   const skipPersistRef = useRef(false)
+  const { size, resizing, resizeBy, resizeHandleProps } = useAtlasWindowSize()
   const transport = useMemo(
     () =>
       new DefaultChatTransport({
@@ -102,7 +104,13 @@ export default function AtlasLauncher() {
   return (
     <div className="fixed bottom-5 right-5 z-[80] flex flex-col items-end gap-3">
       {open && (
-        <section className="w-[calc(100vw-2.5rem)] sm:w-[420px] h-[620px] max-h-[calc(100vh-7rem)] bg-surface-container-lowest border border-outline-variant/70 rounded-xl shadow-[0_24px_80px_rgba(15,23,42,0.22)] flex flex-col overflow-hidden">
+        <section
+          style={{ width: size.width, height: size.height }}
+          className={`relative flex flex-col overflow-hidden rounded-xl border border-outline-variant/70 bg-surface-container-lowest shadow-[0_24px_80px_rgba(15,23,42,0.22)] ${
+            resizing ? 'select-none' : 'transition-[width,height] duration-150 ease-out'
+          }`}
+        >
+          <AtlasResizeHandle resizeBy={resizeBy} resizeHandleProps={resizeHandleProps} />
           <header className="px-4 py-3 border-b border-outline-variant/60 bg-surface-container-low flex items-center justify-between gap-3">
             <div className="min-w-0">
               <h2 className="font-headline text-sm font-semibold text-on-surface">Atlas</h2>
@@ -211,7 +219,7 @@ export default function AtlasLauncher() {
               </div>
             )}
             {messages.map((message) => (
-              <MessageBubble key={message.id} message={message} />
+              <AtlasMessage key={message.id} message={message} />
             ))}
             {busy && (
               <LoadingProgress
@@ -263,33 +271,4 @@ export default function AtlasLauncher() {
       </button>
     </div>
   )
-}
-
-function MessageBubble({ message }) {
-  const isUser = message.role === 'user'
-  return (
-    <article className={`flex ${isUser ? 'justify-end' : 'justify-start'}`}>
-      <div
-        className={`max-w-[92%] rounded-lg px-3 py-2 text-sm leading-relaxed ${
-          isUser
-            ? 'bg-primary-container text-on-primary'
-            : 'bg-surface-container-lowest border border-outline-variant/50 text-on-surface'
-        }`}
-      >
-        {(message.parts || []).map((part, index) => (
-          <MessagePart key={`${message.id}-${index}`} part={part} />
-        ))}
-      </div>
-    </article>
-  )
-}
-
-function MessagePart({ part }) {
-  if (part.type === 'text') {
-    return <AtlasMarkdown>{part.text}</AtlasMarkdown>
-  }
-  if (String(part.type).startsWith('tool-')) {
-    return <AtlasToolPart part={part} />
-  }
-  return null
 }
