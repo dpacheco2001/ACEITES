@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { useLocation, useNavigate } from 'react-router-dom'
+import { useLocation } from 'react-router-dom'
 import { useAuth } from '../auth/AuthContext.jsx'
 
 async function exchangeGoogleCredential(idToken, loginSession, hydrateProfileFromBackend) {
@@ -15,11 +15,20 @@ async function exchangeGoogleCredential(idToken, loginSession, hydrateProfileFro
   }
   const body = await res.json()
   loginSession(body)
-  await hydrateProfileFromBackend()
+  const user = await hydrateProfileFromBackend()
+  if (!user) {
+    throw new Error('La sesión fue creada, pero no se pudo leer el perfil.')
+  }
+  return user
+}
+
+function loginTarget(location) {
+  const from = location.state && location.state.from
+  if (!from || from === '/login') return '/'
+  return from
 }
 
 export default function Login() {
-  const navigate = useNavigate()
   const location = useLocation()
   const { isAuthenticated, loginSession, hydrateProfileFromBackend } = useAuth()
   const divRef = useRef(null)
@@ -66,9 +75,9 @@ export default function Login() {
 
   useEffect(() => {
     if (isAuthenticated) {
-      navigate((location.state && location.state.from) || '/', { replace: true })
+      window.location.replace(loginTarget(location))
     }
-  }, [isAuthenticated, navigate, location.state])
+  }, [isAuthenticated, location])
 
   useEffect(() => {
     if (!clientId || !divRef.current) return undefined
@@ -88,7 +97,7 @@ export default function Login() {
               loginSession,
               hydrateProfileFromBackend,
             )
-            navigate((location.state && location.state.from) || '/', { replace: true })
+            window.location.replace(loginTarget(location))
           } catch (e) {
             setLoginError(e.message || 'Error en login')
           }
@@ -122,7 +131,7 @@ export default function Login() {
 
     existing.addEventListener('load', init)
     return () => existing.removeEventListener('load', init)
-  }, [clientId, loginSession, hydrateProfileFromBackend, navigate, location.state])
+  }, [clientId, loginSession, hydrateProfileFromBackend, location])
 
   return (
     <div className="min-h-screen bg-background flex flex-col items-center justify-center px-6 text-on-background">
