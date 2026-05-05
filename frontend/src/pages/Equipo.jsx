@@ -106,7 +106,7 @@ export default function Equipo() {
               </span>
             </div>
             <p className="text-on-surface-variant text-sm max-w-2xl mt-4 leading-relaxed">
-              Haul Truck · Caterpillar 794AC · Engine Oil Compartment · Quellaveco
+              Haul Truck · Caterpillar 794AC · Engine Oil Compartment · Mina Q
             </p>
           </div>
           <Link

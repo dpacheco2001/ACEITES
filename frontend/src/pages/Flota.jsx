@@ -62,7 +62,7 @@ export default function Flota() {
             Estado actual de la flota
           </h1>
           <p className="text-on-surface-variant mt-2 font-body text-sm max-w-2xl">
-            Monitoreo en tiempo real de {data.total_equipos} unidades Caterpillar 794AC · Quellaveco.
+            Monitoreo en tiempo real de {data.total_equipos} unidades Caterpillar 794AC · Mina Q.
             Prioridad a umbrales de mantenimiento crítico.
           </p>
         </div>
